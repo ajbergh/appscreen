@@ -42,13 +42,14 @@ const deviceConfigs = {
         procedural: true,
         aspectRatio: 2048 / 2732,
         screenHeightFactor: 0.88,
-        screenOffset: { x: 0, y: 0, z: 0.095 },
+        screenOffset: { x: 0, y: 0, z: 0.043 },
         positionOffsetFactor: 0.72,
         cornerRadiusFactor: 0.055,
         modelRotation: { x: 0, y: 0, z: 0 },
-        bezelX: 0.18,
-        bezelY: 0.24,
-        depth: 0.16
+        bezelX: 0.12,
+        bezelY: 0.17,
+        depth: 0.055,
+        cornerRadius: 0.18
     },
     samsung: {
         modelPath: 'models/samsung-galaxy-s25-ultra.glb',
@@ -126,6 +127,32 @@ function createNamedMaterial(name, color, options = {}) {
     return material;
 }
 
+function createRoundedRectShape(width, height, radius) {
+    const shape = new THREE.Shape();
+    const x = -width / 2;
+    const y = -height / 2;
+    const r = Math.min(radius, width / 2, height / 2);
+
+    shape.moveTo(x + r, y);
+    shape.lineTo(x + width - r, y);
+    shape.quadraticCurveTo(x + width, y, x + width, y + r);
+    shape.lineTo(x + width, y + height - r);
+    shape.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    shape.lineTo(x + r, y + height);
+    shape.quadraticCurveTo(x, y + height, x, y + height - r);
+    shape.lineTo(x, y + r);
+    shape.quadraticCurveTo(x, y, x + r, y);
+
+    return shape;
+}
+
+function createRoundedRectMesh(width, height, radius, material, z = 0) {
+    const geometry = new THREE.ShapeGeometry(createRoundedRectShape(width, height, radius));
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.z = z;
+    return mesh;
+}
+
 function createProceduralDeviceModel(config) {
     const group = new THREE.Group();
     group.name = 'procedural-ipad';
@@ -135,29 +162,56 @@ function createProceduralDeviceModel(config) {
     const bodyWidth = screenWidth + (config.bezelX || 0.18) * 2;
     const bodyHeight = screenHeight + (config.bezelY || 0.24) * 2;
     const bodyDepth = config.depth || 0.16;
+    const outerRadius = config.cornerRadius || 0.18;
+    const innerRadius = Math.max(0.08, outerRadius - 0.04);
 
     const frameMaterial = createNamedMaterial('frame', '#5f6062', { metalness: 0.75, roughness: 0.28 });
     const backMaterial = createNamedMaterial('back_glass', '#4f5052', { metalness: 0.45, roughness: 0.38, side: THREE.DoubleSide });
-    const bezelMaterial = createNamedMaterial('bezel', '#080808', { metalness: 0.05, roughness: 0.65, side: THREE.DoubleSide });
+    const bezelMaterial = createNamedMaterial('bezel', '#070707', { metalness: 0.03, roughness: 0.72, side: THREE.DoubleSide });
     const cameraMaterial = createNamedMaterial('camera', '#111111', { metalness: 0.1, roughness: 0.2 });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth), frameMaterial);
+    let bodyGeometry;
+    if (THREE.ExtrudeGeometry) {
+        bodyGeometry = new THREE.ExtrudeGeometry(createRoundedRectShape(bodyWidth, bodyHeight, outerRadius), {
+            depth: bodyDepth,
+            bevelEnabled: true,
+            bevelThickness: 0.012,
+            bevelSize: 0.018,
+            bevelSegments: 8,
+            curveSegments: 16
+        });
+    } else {
+        bodyGeometry = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth);
+    }
+
+    const body = new THREE.Mesh(bodyGeometry, frameMaterial);
     body.name = 'ipad-frame';
+    body.position.z = -bodyDepth / 2;
     group.add(body);
 
-    const frontBezel = new THREE.Mesh(new THREE.PlaneGeometry(bodyWidth - 0.06, bodyHeight - 0.06), bezelMaterial);
+    const frontBezel = createRoundedRectMesh(
+        bodyWidth - 0.05,
+        bodyHeight - 0.05,
+        innerRadius,
+        bezelMaterial,
+        bodyDepth / 2 + 0.006
+    );
     frontBezel.name = 'ipad-front-bezel';
-    frontBezel.position.z = bodyDepth / 2 + 0.003;
     group.add(frontBezel);
 
-    const backPanel = new THREE.Mesh(new THREE.PlaneGeometry(bodyWidth - 0.14, bodyHeight - 0.14), backMaterial);
+    const backPanel = createRoundedRectMesh(
+        bodyWidth - 0.12,
+        bodyHeight - 0.12,
+        innerRadius,
+        backMaterial,
+        -bodyDepth / 2 - 0.006
+    );
     backPanel.name = 'ipad-back-panel';
-    backPanel.position.z = -bodyDepth / 2 - 0.003;
     group.add(backPanel);
 
-    const camera = new THREE.Mesh(new THREE.CircleGeometry(0.055, 32), cameraMaterial);
+    const camera = new THREE.Mesh(new THREE.CircleGeometry(0.032, 32), cameraMaterial);
     camera.name = 'ipad-camera';
-    camera.position.set(0, bodyHeight / 2 - 0.12, bodyDepth / 2 + 0.006);
+    camera.position.set(0, screenHeight / 2 + (config.bezelY || 0.17) * 0.48, bodyDepth / 2 + 0.012);
     group.add(camera);
 
     return group;
@@ -698,33 +752,51 @@ function createScreenOverlay() {
     console.log('Plane size:', planeWidth.toFixed(4), 'x', planeHeight.toFixed(4));
 }
 
-// Create a rounded corner version of the screenshot
-function createRoundedScreenImage(image, cornerRadius) {
-    const canvas = document.createElement('canvas');
-    canvas.width = image.width;
-    canvas.height = image.height;
-    const ctx = canvas.getContext('2d');
+function createDeviceScreenImage(image, config) {
+    const targetAspect = config.aspectRatio || (image.width / image.height);
+    const imageAspect = image.width / image.height;
 
-    // Draw rounded rectangle path
-    const w = canvas.width;
-    const h = canvas.height;
-    const r = cornerRadius;
+    let canvasWidth = image.width;
+    let canvasHeight = image.height;
+
+    if (Math.abs(imageAspect - targetAspect) > 0.02) {
+        if (imageAspect < targetAspect) {
+            canvasHeight = image.height;
+            canvasWidth = Math.round(canvasHeight * targetAspect);
+        } else {
+            canvasWidth = image.width;
+            canvasHeight = Math.round(canvasWidth / targetAspect);
+        }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext('2d');
+    const radius = Math.round(canvas.width * config.cornerRadiusFactor);
 
     ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(w - r, 0);
-    ctx.quadraticCurveTo(w, 0, w, r);
-    ctx.lineTo(w, h - r);
-    ctx.quadraticCurveTo(w, h, w - r, h);
-    ctx.lineTo(r, h);
-    ctx.quadraticCurveTo(0, h, 0, h - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(canvas.width - radius, 0);
+    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, radius);
+    ctx.lineTo(canvas.width, canvas.height - radius);
+    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height);
+    ctx.lineTo(radius, canvas.height);
+    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius);
+    ctx.lineTo(0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
     ctx.closePath();
-
-    // Clip to rounded rectangle and draw image
     ctx.clip();
-    ctx.drawImage(image, 0, 0);
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+    const dw = image.width * scale;
+    const dh = image.height * scale;
+    const dx = (canvas.width - dw) / 2;
+    const dy = (canvas.height - dh) / 2;
+    ctx.drawImage(image, dx, dy, dw, dh);
 
     return canvas;
 }
@@ -746,10 +818,8 @@ function updateScreenTexture() {
         screenTexture.dispose();
     }
 
-    // Create rounded corner version of the image using device-specific corner radius
     const config = deviceConfigs[currentDeviceModel] || deviceConfigs.iphone;
-    const cornerRadius = Math.round(screenshotImage.width * config.cornerRadiusFactor);
-    const roundedImage = createRoundedScreenImage(screenshotImage, cornerRadius);
+    const roundedImage = createDeviceScreenImage(screenshotImage, config);
 
     screenTexture = new THREE.Texture(roundedImage);
     screenTexture.needsUpdate = true;
@@ -960,8 +1030,7 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
         : screenshot?.image;
     const oldMaterial = screenPlaneToUse ? screenPlaneToUse.material : null;
     if (screenshotImage && screenPlaneToUse) {
-        const cornerRadius = Math.round(screenshotImage.width * config.cornerRadiusFactor);
-        const roundedImage = createRoundedScreenImage(screenshotImage, cornerRadius);
+        const roundedImage = createDeviceScreenImage(screenshotImage, config);
         const newTexture = new THREE.Texture(roundedImage);
         newTexture.needsUpdate = true;
         newTexture.encoding = THREE.sRGBEncoding;
