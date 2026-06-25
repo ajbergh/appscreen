@@ -42,14 +42,14 @@ const deviceConfigs = {
         procedural: true,
         aspectRatio: 2048 / 2732,
         screenHeightFactor: 0.88,
-        screenOffset: { x: 0, y: 0, z: 0.043 },
+        screenOffset: { x: 0, y: 0, z: 0.034 },
         positionOffsetFactor: 0.72,
         cornerRadiusFactor: 0.055,
         modelRotation: { x: 0, y: 0, z: 0 },
-        bezelX: 0.12,
-        bezelY: 0.17,
-        depth: 0.055,
-        cornerRadius: 0.18
+        bezelX: 0.055,
+        bezelY: 0.075,
+        depth: 0.044,
+        cornerRadius: 0.13
     },
     samsung: {
         modelPath: 'models/samsung-galaxy-s25-ultra.glb',
@@ -175,8 +175,8 @@ function createProceduralDeviceModel(config) {
         bodyGeometry = new THREE.ExtrudeGeometry(createRoundedRectShape(bodyWidth, bodyHeight, outerRadius), {
             depth: bodyDepth,
             bevelEnabled: true,
-            bevelThickness: 0.012,
-            bevelSize: 0.018,
+            bevelThickness: 0.008,
+            bevelSize: 0.012,
             bevelSegments: 8,
             curveSegments: 16
         });
@@ -190,18 +190,18 @@ function createProceduralDeviceModel(config) {
     group.add(body);
 
     const frontBezel = createRoundedRectMesh(
-        bodyWidth - 0.05,
-        bodyHeight - 0.05,
+        bodyWidth - 0.026,
+        bodyHeight - 0.026,
         innerRadius,
         bezelMaterial,
-        bodyDepth / 2 + 0.006
+        bodyDepth / 2 + 0.004
     );
     frontBezel.name = 'ipad-front-bezel';
     group.add(frontBezel);
 
     const backPanel = createRoundedRectMesh(
-        bodyWidth - 0.12,
-        bodyHeight - 0.12,
+        bodyWidth - 0.08,
+        bodyHeight - 0.08,
         innerRadius,
         backMaterial,
         -bodyDepth / 2 - 0.006
@@ -209,9 +209,9 @@ function createProceduralDeviceModel(config) {
     backPanel.name = 'ipad-back-panel';
     group.add(backPanel);
 
-    const camera = new THREE.Mesh(new THREE.CircleGeometry(0.032, 32), cameraMaterial);
+    const camera = new THREE.Mesh(new THREE.CircleGeometry(0.018, 32), cameraMaterial);
     camera.name = 'ipad-camera';
-    camera.position.set(0, screenHeight / 2 + (config.bezelY || 0.17) * 0.48, bodyDepth / 2 + 0.012);
+    camera.position.set(0, screenHeight / 2 + (config.bezelY || 0.075) * 0.5, bodyDepth / 2 + 0.008);
     group.add(camera);
 
     return group;
