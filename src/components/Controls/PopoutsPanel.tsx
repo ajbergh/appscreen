@@ -8,6 +8,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import type { PopoutSettings } from '../../types';
+import { getScreenshotImage } from '../../hooks/useCanvas';
 
 /**
  * Renders a small canvas thumbnail of the popout crop region.
@@ -40,8 +41,11 @@ export function PopoutsPanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const updateScreenshot = useAppStore((s) => s.updateScreenshot);
   const selectedIndex = useAppStore((s) => s.selectedIndex);
+  const currentLanguage = useAppStore((s) => s.currentLanguage);
+  const projectLanguages = useAppStore((s) => s.projectLanguages);
 
   const [selectedPopoutId, setSelectedPopoutId] = useState<string | null>(null);
+  const [cropCursor, setCropCursor] = useState('default');
   const cropPreviewRef = useRef<HTMLCanvasElement>(null);
   const cropDragRef = useRef<{
     mode: string;
@@ -51,9 +55,12 @@ export function PopoutsPanel() {
   } | null>(null);
 
   const popouts = currentScreenshot?.popouts || [];
-  const hasImage = !!(currentScreenshot?.localizedImages?.['en']?.image || currentScreenshot?.image);
   const selectedPopout = popouts.find((p) => p.id === selectedPopoutId) || null;
-  const sourceImage = currentScreenshot?.localizedImages?.['en']?.image || currentScreenshot?.image || null;
+  const sourceImage = currentScreenshot ? getScreenshotImage(currentScreenshot, currentLanguage, projectLanguages) : null;
+  const hasImage = !!sourceImage;
+
+  /** Formats percentage/pixel values like the vanilla popout inspector. */
+  const formatValue = (value: number) => Number.isFinite(value) ? value.toFixed(1) : '0.0';
 
   /**
    * Applies partial popout updates to the selected screenshot.
@@ -90,7 +97,7 @@ export function PopoutsPanel() {
    */
   const hitTestCrop = (p: PopoutSettings, canvas: HTMLCanvasElement, x: number, y: number) => {
     const r = getCropRect(p, canvas);
-    const hs = 14;
+    const hs = 12;
     const handles = [
       ['nw', r.x, r.y], ['n', r.x + r.w / 2, r.y], ['ne', r.x + r.w, r.y],
       ['w', r.x, r.y + r.h / 2], ['e', r.x + r.w, r.y + r.h / 2],
@@ -101,6 +108,24 @@ export function PopoutsPanel() {
     }
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'move';
     return '';
+  };
+
+  /**
+   * Maps crop handles to the resize cursors used by the original crop editor.
+   */
+  const getCropCursor = (mode: string) => {
+    const cursorMap: Record<string, string> = {
+      nw: 'nwse-resize',
+      se: 'nwse-resize',
+      ne: 'nesw-resize',
+      sw: 'nesw-resize',
+      n: 'ns-resize',
+      s: 'ns-resize',
+      e: 'ew-resize',
+      w: 'ew-resize',
+      move: 'move',
+    };
+    return cursorMap[mode] || 'default';
   };
 
   /**
@@ -126,6 +151,7 @@ export function PopoutsPanel() {
     if (!selectedPopout) return;
     const point = getCanvasPoint(e);
     const mode = hitTestCrop(selectedPopout, e.currentTarget, point.x, point.y);
+    setCropCursor(getCropCursor(mode));
     if (!mode) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     cropDragRef.current = { mode, startX: point.x, startY: point.y, original: selectedPopout };
@@ -137,9 +163,13 @@ export function PopoutsPanel() {
    */
   const handleCropPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = cropDragRef.current;
-    if (!drag || !selectedPopout) return;
+    if (!selectedPopout) return;
     const canvas = e.currentTarget;
     const point = getCanvasPoint(e);
+    if (!drag) {
+      setCropCursor(getCropCursor(hitTestCrop(selectedPopout, canvas, point.x, point.y)));
+      return;
+    }
     const dx = ((point.x - drag.startX) / canvas.width) * 100;
     const dy = ((point.y - drag.startY) / canvas.height) * 100;
     const o = drag.original;
@@ -154,6 +184,19 @@ export function PopoutsPanel() {
       if (drag.mode.includes('n')) { crop.cropY = o.cropY + dy; crop.cropHeight = o.cropHeight - dy; }
       if (drag.mode.includes('s')) { crop.cropHeight = o.cropHeight + dy; }
     }
+
+    // Pin the opposite edge when west/north handles hit the minimum crop size.
+    const min = 5;
+    if (drag.mode.includes('w')) {
+      const right = o.cropX + o.cropWidth;
+      crop.cropX = Math.max(0, Math.min(right - min, crop.cropX));
+      crop.cropWidth = right - crop.cropX;
+    }
+    if (drag.mode.includes('n')) {
+      const bottom = o.cropY + o.cropHeight;
+      crop.cropY = Math.max(0, Math.min(bottom - min, crop.cropY));
+      crop.cropHeight = bottom - crop.cropY;
+    }
     updatePopout(selectedPopout.id, clampCrop(crop));
   };
 
@@ -165,6 +208,11 @@ export function PopoutsPanel() {
       e.currentTarget.releasePointerCapture(e.pointerId);
       cropDragRef.current = null;
     }
+  };
+
+  /** Clears resize cursor feedback after leaving the crop canvas. */
+  const handleCropPointerLeave = () => {
+    if (!cropDragRef.current) setCropCursor('default');
   };
 
   /**
@@ -283,7 +331,7 @@ export function PopoutsPanel() {
               <div className="popout-item-thumb"><PopoutThumb popout={p} sourceImage={sourceImage} /></div>
               <div className="popout-item-info">
                 <div className="popout-item-name">Popout {idx + 1}</div>
-                <div className="popout-item-crop">{Math.round(p.cropWidth)}% × {Math.round(p.cropHeight)}%</div>
+                <div className="popout-item-crop">{formatValue(p.cropWidth)}% × {formatValue(p.cropHeight)}%</div>
               </div>
               <div className="popout-item-actions">
                 <button className="element-item-btn" onClick={(e) => { e.stopPropagation(); movePopout(p.id, 'up'); }}>↑</button>
@@ -303,7 +351,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="0" max={100 - selectedPopout.cropWidth} value={selectedPopout.cropX}
                 onChange={(e) => updatePopout(selectedPopout.id, { cropX: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.cropX}%</span>
+              <span className="control-value">{formatValue(selectedPopout.cropX)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -311,7 +359,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="0" max={100 - selectedPopout.cropHeight} value={selectedPopout.cropY}
                 onChange={(e) => updatePopout(selectedPopout.id, { cropY: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.cropY}%</span>
+              <span className="control-value">{formatValue(selectedPopout.cropY)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -319,7 +367,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="5" max={100 - selectedPopout.cropX} value={selectedPopout.cropWidth}
                 onChange={(e) => updatePopout(selectedPopout.id, { cropWidth: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.cropWidth}%</span>
+              <span className="control-value">{formatValue(selectedPopout.cropWidth)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -327,7 +375,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="5" max={100 - selectedPopout.cropY} value={selectedPopout.cropHeight}
                 onChange={(e) => updatePopout(selectedPopout.id, { cropHeight: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.cropHeight}%</span>
+              <span className="control-value">{formatValue(selectedPopout.cropHeight)}%</span>
             </div>
           </div>
 
@@ -338,11 +386,12 @@ export function PopoutsPanel() {
               <canvas
                 ref={cropPreviewRef}
                 id="popout-crop-preview"
-                style={{ display: 'block', width: '100%', touchAction: 'none', cursor: 'crosshair' }}
+                style={{ display: 'block', width: '100%', touchAction: 'none', cursor: cropCursor }}
                 onPointerDown={handleCropPointerDown}
                 onPointerMove={handleCropPointerMove}
                 onPointerUp={handleCropPointerUp}
                 onPointerCancel={handleCropPointerUp}
+                onPointerLeave={handleCropPointerLeave}
               />
             </div>
           </div>
@@ -353,7 +402,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="0" max="100" value={selectedPopout.x}
                 onChange={(e) => updatePopout(selectedPopout.id, { x: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.x}%</span>
+              <span className="control-value">{formatValue(selectedPopout.x)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -361,7 +410,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="0" max="100" value={selectedPopout.y}
                 onChange={(e) => updatePopout(selectedPopout.id, { y: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.y}%</span>
+              <span className="control-value">{formatValue(selectedPopout.y)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -369,7 +418,7 @@ export function PopoutsPanel() {
             <div className="control-row">
               <input type="range" min="5" max="100" value={selectedPopout.width}
                 onChange={(e) => updatePopout(selectedPopout.id, { width: parseInt(e.target.value) })} />
-              <span className="control-value">{selectedPopout.width}%</span>
+              <span className="control-value">{formatValue(selectedPopout.width)}%</span>
             </div>
           </div>
           <div className="control-group">
@@ -399,7 +448,7 @@ export function PopoutsPanel() {
 
           {/* Shadow */}
           <div className="control-group">
-            <div className="toggle-row">
+            <div className={`toggle-row${selectedPopout.shadow.enabled ? '' : ' collapsed'}`}>
               <label className="control-label">Shadow</label>
               <div className={`toggle${selectedPopout.shadow.enabled ? ' active' : ''}`}
                 onClick={() => updatePopout(selectedPopout.id, { shadow: { ...selectedPopout.shadow, enabled: !selectedPopout.shadow.enabled } })}>
@@ -443,16 +492,28 @@ export function PopoutsPanel() {
               </div>
               <div className="control-group">
                 <label className="control-label">Shadow Color</label>
-                <input type="color" value={selectedPopout.shadow.color}
-                  onChange={(e) => updatePopout(selectedPopout.id, { shadow: { ...selectedPopout.shadow, color: e.target.value } })}
-                  className="color-input-small" />
+                <div className="control-row">
+                  <input type="color" value={selectedPopout.shadow.color}
+                    onChange={(e) => updatePopout(selectedPopout.id, { shadow: { ...selectedPopout.shadow, color: e.target.value } })}
+                    className="color-input-small" />
+                  <input
+                    type="text"
+                    value={selectedPopout.shadow.color}
+                    onChange={(e) => {
+                      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                        updatePopout(selectedPopout.id, { shadow: { ...selectedPopout.shadow, color: e.target.value } });
+                      }
+                    }}
+                    className="hex-input"
+                  />
+                </div>
               </div>
             </>
           )}
 
           {/* Border */}
           <div className="control-group">
-            <div className="toggle-row">
+            <div className={`toggle-row${selectedPopout.border.enabled ? '' : ' collapsed'}`}>
               <label className="control-label">Border</label>
               <div className={`toggle${selectedPopout.border.enabled ? ' active' : ''}`}
                 onClick={() => updatePopout(selectedPopout.id, { border: { ...selectedPopout.border, enabled: !selectedPopout.border.enabled } })}>
@@ -480,9 +541,21 @@ export function PopoutsPanel() {
               </div>
               <div className="control-group">
                 <label className="control-label">Border Color</label>
-                <input type="color" value={selectedPopout.border.color}
-                  onChange={(e) => updatePopout(selectedPopout.id, { border: { ...selectedPopout.border, color: e.target.value } })}
-                  className="color-input-small" />
+                <div className="control-row">
+                  <input type="color" value={selectedPopout.border.color}
+                    onChange={(e) => updatePopout(selectedPopout.id, { border: { ...selectedPopout.border, color: e.target.value } })}
+                    className="color-input-small" />
+                  <input
+                    type="text"
+                    value={selectedPopout.border.color}
+                    onChange={(e) => {
+                      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                        updatePopout(selectedPopout.id, { border: { ...selectedPopout.border, color: e.target.value } });
+                      }
+                    }}
+                    className="hex-input"
+                  />
+                </div>
               </div>
             </>
           )}

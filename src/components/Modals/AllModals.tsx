@@ -10,6 +10,22 @@ import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { LLM_PROVIDERS } from './Modals';
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  'en': 'English', 'en-gb': 'English (UK)', 'de': 'German', 'fr': 'French', 'es': 'Spanish',
+  'it': 'Italian', 'pt': 'Portuguese', 'pt-br': 'Portuguese (Brazil)', 'nl': 'Dutch', 'ru': 'Russian',
+  'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'zh-tw': 'Chinese (Taiwan)', 'ar': 'Arabic',
+  'hi': 'Hindi', 'tr': 'Turkish', 'pl': 'Polish', 'sv': 'Swedish', 'da': 'Danish',
+  'no': 'Norwegian', 'fi': 'Finnish', 'th': 'Thai', 'vi': 'Vietnamese', 'id': 'Indonesian', 'uk': 'Ukrainian',
+};
+
+const LANGUAGE_FLAGS: Record<string, string> = {
+  'en': '🇺🇸', 'en-gb': '🇬🇧', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸',
+  'it': '🇮🇹', 'pt': '🇵🇹', 'pt-br': '🇧🇷', 'nl': '🇳🇱', 'ru': '🇷🇺',
+  'ja': '🇯🇵', 'ko': '🇰🇷', 'zh': '🇨🇳', 'zh-tw': '🇹🇼', 'ar': '🇸🇦',
+  'hi': '🇮🇳', 'tr': '🇹🇷', 'pl': '🇵🇱', 'sv': '🇸🇪', 'da': '🇩🇰',
+  'no': '🇳🇴', 'fi': '🇫🇮', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦',
+};
+
 /**
  * Closes a workflow modal on Escape while it is visible.
  */
@@ -34,7 +50,10 @@ async function callTextProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: st
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] }),
     });
-    if (!resp.ok) throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}`);
+    if (!resp.ok) {
+      const errorBody = await resp.text().catch(() => '');
+      throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}${errorBody ? ` - ${errorBody}` : ''}`);
+    }
     const data = await resp.json();
     return data.content?.[0]?.text || '';
   }
@@ -42,9 +61,12 @@ async function callTextProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: st
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model, max_completion_tokens: 16384, messages: [{ role: 'user', content: prompt }] }),
     });
-    if (!resp.ok) throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}`);
+    if (!resp.ok) {
+      const errorBody = await resp.text().catch(() => '');
+      throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}${errorBody ? ` - ${errorBody}` : ''}`);
+    }
     const data = await resp.json();
     return data.choices?.[0]?.message?.content || '';
   }
@@ -79,7 +101,7 @@ export function ExportProgressModal({ isOpen, progress, status, detail }: {
   return (
     <div className="modal-overlay">
       <div className="modal" style={{ textAlign: 'center' }}>
-        <h3>Exporting Screenshots</h3>
+        <h3>{status === 'Complete!' ? 'Complete!' : 'Exporting Screenshots'}</h3>
         <div style={{ width: '100%', height: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', overflow: 'hidden', margin: '20px 0 12px' }}>
           <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '4px', width: `${progress}%`, transition: 'width 0.2s ease-out' }} />
         </div>
@@ -113,6 +135,17 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
   const selectedElement = target === 'element'
     ? screenshot?.elements?.find((el: any) => el.id === elementId)
     : null;
+  const modalLanguages: string[] = target === 'headline'
+    ? (screenshot?.text?.headlineLanguages?.length ? screenshot.text.headlineLanguages : projectLanguages)
+    : target === 'subheadline'
+      ? (screenshot?.text?.subheadlineLanguages?.length ? screenshot.text.subheadlineLanguages : projectLanguages)
+      : projectLanguages;
+  const targetLabel = target === 'element' ? 'Element Text' : target.charAt(0).toUpperCase() + target.slice(1);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSourceLang(modalLanguages[0] || currentLanguage || 'en');
+  }, [isOpen, target, selectedIndex]);
 
   useEffect(() => {
     if (!isOpen || !screenshot) return;
@@ -142,7 +175,7 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
       Object.entries(translations).forEach(([lang, text]) => {
         if (text) newSubheadlines[lang] = text;
       });
-      updateScreenshot(selectedIndex, { text: { ...screenshot.text, subheadlines: newSubheadlines } });
+      updateScreenshot(selectedIndex, { text: { ...screenshot.text, subheadlineEnabled: true, subheadlines: newSubheadlines } });
     } else if (selectedElement) {
       const newTexts = { ...(selectedElement.texts || {}) };
       Object.entries(translations).forEach(([lang, text]) => {
@@ -177,7 +210,7 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
     setAiTranslating(true);
     setAiStatus('Translating...');
 
-    const targets = projectLanguages.filter(l => l !== sourceLang);
+    const targets = modalLanguages.filter(l => l !== sourceLang);
     if (targets.length === 0) {
       setAiTranslating(false);
       setAiStatus('Add more languages to translate to');
@@ -185,9 +218,14 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
     }
 
     try {
-      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate this ${target} from ${sourceLang} to these target language codes: ${targets.join(', ')}.
+      const targetLangNames = targets.map((lang) => `${LANGUAGE_NAMES[lang] || lang} (${lang})`).join(', ');
+      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate this ${targetLabel} from ${LANGUAGE_NAMES[sourceLang] || sourceLang} to these languages: ${targetLangNames}.
 
-Keep every translation concise, punchy, marketing-focused, culturally natural, and similar in length to the source because it must fit on app screenshots.
+Rules:
+- Keep every translation concise, punchy, marketing-focused, and culturally natural.
+- Keep roughly the same length as the source because it must fit on app screenshots.
+- Preserve product names, placeholders, emoji, punctuation intent, and line breaks.
+- Return only JSON. Do not include markdown or commentary.
 
 Source:
 ${JSON.stringify(sourceText)}
@@ -213,12 +251,12 @@ Return ONLY a valid JSON object mapping language codes to translations, like:
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', textAlign: 'left' }}>
-        <h3 style={{ textAlign: 'center' }}>Translate {target.charAt(0).toUpperCase() + target.slice(1)}</h3>
+        <h3 style={{ textAlign: 'center' }}>Translate {targetLabel}</h3>
 
         <div style={{ background: 'var(--bg-tertiary)', padding: '16px', borderRadius: '10px', marginBottom: '16px' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Source Language</label>
           <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} style={{ width: '100%', marginBottom: '12px', padding: '8px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)' }}>
-            {projectLanguages.map(l => <option key={l} value={l}>{l.toUpperCase()}</option>)}
+            {modalLanguages.map(l => <option key={l} value={l}>{LANGUAGE_FLAGS[l] || '🌐'} {LANGUAGE_NAMES[l] || l.toUpperCase()}</option>)}
           </select>
           <div style={{ background: 'var(--bg-primary)', padding: '12px', borderRadius: '8px', fontSize: '14px', color: 'var(--text-secondary)', minHeight: '40px', wordBreak: 'break-word' }}>
             {translations[sourceLang] || '(empty)'}
@@ -226,16 +264,16 @@ Return ONLY a valid JSON object mapping language codes to translations, like:
         </div>
 
         <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '20px' }}>
-          {projectLanguages.filter(l => l !== sourceLang).map(lang => (
+          {modalLanguages.filter(l => l !== sourceLang).map(lang => (
             <div key={lang} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500 }}>
-                <span style={{ fontSize: '18px' }}>{{ 'en': '🇺🇸', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸', 'it': '🇮🇹', 'pt': '🇵🇹', 'ja': '🇯🇵', 'ko': '🇰🇷', 'zh': '🇨🇳', 'ar': '🇸🇦', 'hi': '🇮🇳', 'ru': '🇷🇺', 'nl': '🇳🇱', 'sv': '🇸🇪', 'da': '🇩🇰', 'no': '🇳🇴', 'fi': '🇫🇮', 'pl': '🇵🇱', 'tr': '🇹🇷', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦', 'pt-br': '🇧🇷', 'en-gb': '🇬🇧', 'zh-tw': '🇹🇼' }[lang] || '🌐'}</span>
-                {lang.toUpperCase()}
+                <span style={{ fontSize: '18px' }}>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
+                {LANGUAGE_NAMES[lang] || lang.toUpperCase()}
               </div>
               <textarea
                 value={translations[lang] || ''}
                 onChange={(e) => setTranslations(prev => ({ ...prev, [lang]: e.target.value }))}
-                placeholder={`Translation for ${lang}...`}
+                placeholder={`Translation for ${LANGUAGE_NAMES[lang] || lang}...`}
                 rows={2}
                 style={{ width: '100%', minHeight: '60px', resize: 'vertical', padding: '8px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
               />
@@ -301,17 +339,28 @@ export function TranslateAllModal({ isOpen, onClose }: { isOpen: boolean; onClos
     setWorking(true);
     setStatus(`Translating ${sourceItems.length} text(s)...`);
     try {
-      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate each item from ${sourceLang} to these target language codes: ${targetLangs.join(', ')}.
+      const targetLangNames = targetLangs.map((lang) => `${LANGUAGE_NAMES[lang] || lang} (${lang})`).join(', ');
+      const groupedItems = sourceItems.map((item) => {
+        const screenshotNumber = item.index + 1;
+        const fieldLabel = item.field === 'headline' ? 'headline' : 'subheadline';
+        return `${item.id} (Screenshot ${screenshotNumber} ${fieldLabel}): ${JSON.stringify(item.text)}`;
+      }).join('\n');
+      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate the following texts from ${LANGUAGE_NAMES[sourceLang] || sourceLang} to these languages: ${targetLangNames}.
 
-Keep translations concise, punchy, marketing-focused, natural, and similar in length to the source because the text must fit on app screenshots.
+Rules:
+- Keep translations concise, punchy, marketing-focused, and culturally natural.
+- Keep each translation close to the source length because it must fit on app screenshots.
+- Preserve product names, placeholders, emoji, punctuation intent, and line breaks.
+- Return only JSON. Do not include markdown or commentary.
 
 Return ONLY valid JSON in this exact shape:
 {"0:headline":{"de":"...","fr":"..."}}
 
-Items:
-${sourceItems.map((item) => `${item.id}: ${JSON.stringify(item.text)}`).join('\n')}`;
+Source texts (${LANGUAGE_NAMES[sourceLang] || sourceLang}):
+${groupedItems}`;
       const translations = cleanJsonResponse(await callTextProvider(provider, apiKey, model, prompt));
       const byScreenshot = new Map<number, any>();
+      let appliedCount = 0;
       sourceItems.forEach((item) => {
         const translated = translations[item.id] || {};
         if (!byScreenshot.has(item.index)) byScreenshot.set(item.index, { ...screenshots[item.index].text });
@@ -319,14 +368,17 @@ ${sourceItems.map((item) => `${item.id}: ${JSON.stringify(item.text)}`).join('\n
         const key = item.field === 'headline' ? 'headlines' : 'subheadlines';
         text[key] = { ...(text[key] || {}) };
         targetLangs.forEach((lang) => {
-          if (translated[lang]) text[key][lang] = translated[lang];
+          if (translated[lang]) {
+            text[key][lang] = translated[lang];
+            appliedCount++;
+          }
         });
         if (item.field === 'subheadline') text.subheadlineEnabled = true;
       });
       byScreenshot.forEach((text, index) => updateScreenshot(index, { text }));
       saveState();
-      setStatus('Translations applied.');
-      onClose();
+      setStatus(`Successfully translated ${appliedCount} text(s)!`);
+      window.setTimeout(onClose, 700);
     } catch (err: any) {
       setStatus(err?.message === 'AI_UNAVAILABLE' ? 'Invalid or unavailable API key/model.' : `Translation failed: ${err?.message || err}`);
     } finally {
@@ -342,17 +394,18 @@ ${sourceItems.map((item) => `${item.id}: ${JSON.stringify(item.text)}`).join('\n
         <div className="control-group">
           <label className="control-label">Source Language</label>
           <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)}>
-            {projectLanguages.map((lang) => <option key={lang} value={lang}>{lang.toUpperCase()}</option>)}
+            {projectLanguages.map((lang) => <option key={lang} value={lang}>{LANGUAGE_FLAGS[lang] || '🌐'} {LANGUAGE_NAMES[lang] || lang.toUpperCase()}</option>)}
           </select>
         </div>
         <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
+          <div>Provider: {LLM_PROVIDERS[(localStorage.getItem('aiProvider') || 'anthropic') as keyof typeof LLM_PROVIDERS]?.name || 'AI'}</div>
           <div>Texts to translate: {sourceItems.length}</div>
           <div>Target languages: {targetLangs.length}</div>
         </div>
         {status && <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{status}</p>}
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
-          <button className="modal-btn primary" disabled={working} onClick={handleTranslate}>{working ? 'Translating...' : 'Translate'}</button>
+          <button className="modal-btn primary" disabled={working || sourceItems.length === 0 || targetLangs.length === 0 || projectLanguages.length < 2} onClick={handleTranslate}>{working ? 'Translating...' : 'Translate'}</button>
         </div>
       </div>
     </div>
@@ -381,7 +434,10 @@ async function callVisionProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: 
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content }] }),
     });
-    if (!resp.ok) throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}`);
+    if (!resp.ok) {
+      const errorBody = await resp.text().catch(() => '');
+      throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}${errorBody ? ` - ${errorBody}` : ''}`);
+    }
     const data = await resp.json();
     return data.content?.[0]?.text || '';
   }
@@ -393,7 +449,10 @@ async function callVisionProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: 
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, max_completion_tokens: 4096, messages: [{ role: 'user', content }] }),
     });
-    if (!resp.ok) throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}`);
+    if (!resp.ok) {
+      const errorBody = await resp.text().catch(() => '');
+      throw new Error(resp.status === 401 || resp.status === 403 ? 'AI_UNAVAILABLE' : `API request failed: ${resp.status}${errorBody ? ` - ${errorBody}` : ''}`);
+    }
     const data = await resp.json();
     return data.choices?.[0]?.message?.content || '';
   }
@@ -434,40 +493,56 @@ export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClo
     const providerConfig = LLM_PROVIDERS[provider];
     const apiKey = localStorage.getItem(providerConfig.storageKey) || '';
     if (!apiKey) { setStatus('Add your API key in Settings first.'); return; }
+    if (screenshots.length === 0) { setStatus('Add screenshots before generating titles.'); return; }
     const model = localStorage.getItem(providerConfig.modelStorageKey) || providerConfig.defaultModel;
     const images = screenshots
-      .map((screenshot) => screenshot.localizedImages?.[sourceLang]?.src || screenshot.localizedImages?.en?.src || screenshot.image?.src || '')
+      .map((screenshot) => {
+        if (screenshot.localizedImages?.[sourceLang]?.src) return screenshot.localizedImages[sourceLang].src;
+        for (const lang of projectLanguages) {
+          if (screenshot.localizedImages?.[lang]?.src) return screenshot.localizedImages[lang].src;
+        }
+        return screenshot.image?.src || '';
+      })
       .map(parseDataUrl)
       .filter(Boolean) as Array<{ mimeType: string; base64: string }>;
     if (!images.length) { setStatus('No screenshot images found.'); return; }
     setWorking(true);
     setStatus(`Analyzing ${images.length} screenshots...`);
     try {
-      const prompt = `You are an expert App Store marketing copywriter. Analyze these ${images.length} app screenshots in order and create unique titles for each.
+      const langName = LANGUAGE_NAMES[sourceLang] || sourceLang;
+      const prompt = `You are an expert App Store marketing copywriter. Analyze these ${images.length} app screenshots in order and create unique App Store screenshot titles in ${langName}.
 
-Screenshot 1 must focus on the main value proposition. Headlines must be very short, 2-4 words. Subheadlines must be short, 4-8 words. Do not repeat ideas.
+Rules:
+- Screenshot 1 should communicate the main value proposition.
+- Each later screenshot should focus on the most visible feature or benefit in that image.
+- Headlines must be very short, ideally 2-4 words.
+- Subheadlines must be short, ideally 4-8 words.
+- Avoid repeating the same idea across screenshots.
+- Use natural, conversion-focused ${langName} marketing copy.
+- If a subheadline is not useful for a screenshot, return an empty string for it.
+- Return only JSON. Do not include markdown or commentary.
 
 Return ONLY valid JSON:
 {"0":{"headline":"...","subheadline":"..."}}
-
-Write all titles in ${sourceLang}.`;
+`;
       const titles = cleanJsonResponse(await callVisionProvider(provider, apiKey, model, images, prompt));
       screenshots.forEach((screenshot, index) => {
         const title = titles[String(index)];
         if (!title) return;
+        const headline = typeof title.headline === 'string' ? title.headline.trim() : '';
+        const subheadline = typeof title.subheadline === 'string' ? title.subheadline.trim() : '';
         updateScreenshot(index, {
           text: {
             ...screenshot.text,
-            headlineEnabled: true,
-            subheadlineEnabled: true,
-            headlines: { ...(screenshot.text.headlines || {}), [sourceLang]: title.headline || '' },
-            subheadlines: { ...(screenshot.text.subheadlines || {}), [sourceLang]: title.subheadline || '' },
-            currentHeadlineLang: sourceLang,
-            currentSubheadlineLang: sourceLang,
+            headlineEnabled: headline ? true : screenshot.text.headlineEnabled,
+            subheadlineEnabled: subheadline ? true : screenshot.text.subheadlineEnabled,
+            headlines: headline ? { ...(screenshot.text.headlines || {}), [sourceLang]: headline } : (screenshot.text.headlines || {}),
+            subheadlines: subheadline ? { ...(screenshot.text.subheadlines || {}), [sourceLang]: subheadline } : (screenshot.text.subheadlines || {}),
           },
         });
       });
       saveState();
+      setStatus('Titles applied.');
       onClose();
     } catch (err: any) {
       setStatus(err?.message === 'AI_UNAVAILABLE' ? 'Invalid or unavailable API key/model.' : `Generation failed: ${err?.message || err}`);
@@ -484,7 +559,7 @@ Write all titles in ${sourceLang}.`;
         <div className="control-group">
           <label className="control-label">Source Image Language</label>
           <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)}>
-            {projectLanguages.map((lang) => <option key={lang} value={lang}>{lang.toUpperCase()}</option>)}
+            {projectLanguages.map((lang) => <option key={lang} value={lang}>{LANGUAGE_FLAGS[lang] || '🌐'} {LANGUAGE_NAMES[lang] || lang.toUpperCase()}</option>)}
           </select>
         </div>
         <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
@@ -579,8 +654,8 @@ export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, sele
                 )}
               </div>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '18px' }}>{{ 'en': '🇺🇸', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸', 'it': '🇮🇹', 'pt': '🇵🇹', 'ja': '🇯🇵', 'ko': '🇰🇷', 'zh': '🇨🇳', 'ar': '🇸🇦', 'hi': '🇮🇳', 'ru': '🇷🇺', 'nl': '🇳🇱', 'sv': '🇸🇪', 'da': '🇩🇰', 'no': '🇳🇴', 'fi': '🇫🇮', 'pl': '🇵🇱', 'tr': '🇹🇷', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦', 'pt-br': '🇧🇷', 'en-gb': '🇬🇧', 'zh-tw': '🇹🇼' }[lang] || '🌐'}</span>
-                <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{lang.toUpperCase()}</span>
+                <span style={{ fontSize: '18px' }}>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
+                <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{LANGUAGE_NAMES[lang] || lang.toUpperCase()}</span>
               </div>
               <button onClick={() => setUploadLang(lang)} style={{ padding: '8px 14px', border: 'none', background: 'var(--accent)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
                 {hasImageForLang(lang) ? 'Replace' : 'Upload'}
@@ -628,10 +703,19 @@ export function EmojiPicker({ isOpen, onClose, onSelect }: {
 
   const bundledEmojiData = (window as any).EMOJI_DATA as Record<string, Array<{ emoji: string; name: string; keywords?: string[] }>> | undefined;
   const emojiData = bundledEmojiData || Object.fromEntries(
-    Object.entries(EMOJI_CATEGORIES).map(([cat, emojis]) => [
-      cat,
-      emojis.map((emoji) => ({ emoji, name: emoji, keywords: [] })),
-    ])
+    Object.entries(EMOJI_CATEGORIES).map(([cat, emojis]) => {
+      const seen = new Set<string>();
+      return [
+        cat,
+        emojis
+          .filter((emoji) => {
+            if (seen.has(emoji)) return false;
+            seen.add(emoji);
+            return true;
+          })
+          .map((emoji) => ({ emoji, name: `${cat} emoji`, keywords: [cat] })),
+      ];
+    })
   );
   const filteredEmojis = search
     ? Object.values(emojiData).flat().filter((item) => {
@@ -688,23 +772,34 @@ export function IconPicker({ isOpen, onClose, onSelect }: {
 }) {
   useEscapeKey(onClose, isOpen);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [category, setCategory] = useState<'popular' | 'all'>('popular');
   const [icons, setIcons] = useState<string[]>([]);
+  const [allIcons, setAllIcons] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   const POPULAR_ICONS = ['star', 'heart', 'zap', 'sun', 'moon', 'cloud', 'flame', 'droplet', 'eye', 'shield', 'crown', 'gem', 'trophy', 'gift', 'rocket', 'sparkles', 'check', 'x', 'plus', 'minus', 'arrow-up', 'arrow-down', 'arrow-left', 'arrow-right', 'chevron-up', 'chevron-down', 'chevron-left', 'chevron-right', 'home', 'user', 'settings', 'search', 'bell', 'mail', 'phone', 'camera', 'image', 'video', 'music', 'play', 'pause', 'stop', 'skip-forward', 'skip-back', 'volume-2', 'wifi', 'bluetooth', 'battery', 'lock', 'unlock', 'key', 'map-pin', 'navigation', 'compass', 'globe', 'map', 'calendar', 'clock', 'watch', 'timer', 'alarm', 'download', 'upload', 'share', 'link', 'external-link', 'copy', 'clipboard', 'edit', 'trash', 'folder', 'file', 'file-text', 'book', 'bookmark', 'flag', 'tag', 'hash', 'at-sign', 'percent', 'divide', 'equal', 'info', 'alert-circle', 'alert-triangle', 'help-circle', 'check-circle', 'x-circle', 'plus-circle', 'minus-circle'];
 
   useEffect(() => {
-    if (isOpen) {
-      const popular = (window as any).LUCIDE_POPULAR as string[] | undefined;
-      const all = (window as any).LUCIDE_ALL as string[] | undefined;
-      setIcons(category === 'popular' ? (popular || POPULAR_ICONS) : (all || POPULAR_ICONS));
+    if (!isOpen) return;
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      const popular = Array.isArray((window as any).LUCIDE_POPULAR) ? (window as any).LUCIDE_POPULAR as string[] : POPULAR_ICONS;
+      const all = Array.isArray((window as any).LUCIDE_ALL) ? (window as any).LUCIDE_ALL as string[] : popular;
+      setAllIcons(all);
+      setIcons(category === 'popular' ? popular : all);
       setLoading(false);
-    }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [isOpen, category]);
 
-  const filteredIcons = search
-    ? (((window as any).LUCIDE_ALL as string[] | undefined) || icons).filter(i => i.toLowerCase().includes(search.toLowerCase()))
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 150);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const filteredIcons = debouncedSearch
+    ? (allIcons.length ? allIcons : icons).filter(i => i.toLowerCase().includes(debouncedSearch))
     : icons;
 
   if (!isOpen) return null;

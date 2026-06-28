@@ -14,24 +14,24 @@ import './styles.css'
 /**
  * Applies the saved theme before the first paint.
  *
- * `themePreference` accepts `light`, `dark`, or `auto`. The original vanilla app
- * set `data-theme` before wiring the UI, so React does the same here to avoid a
- * visible flash when the user's preference differs from the default dark theme.
+ * `themePreference` accepts `light`, `dark`, or `auto`. Auto mode removes the
+ * manual `data-theme` override so the CSS `prefers-color-scheme` media query
+ * stays the source of truth.
  */
 function initTheme() {
-  const saved = localStorage.getItem('themePreference') || 'dark';
+  const saved = localStorage.getItem('themePreference') || 'auto';
   if (saved === 'light' || saved === 'dark') {
     document.documentElement.dataset.theme = saved;
   } else {
-    document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    delete document.documentElement.dataset.theme;
   }
 }
 initTheme();
 
 // Keep `auto` theme in sync with OS changes without touching explicit choices.
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if ((localStorage.getItem('themePreference') || 'dark') === 'auto') {
-    document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  if ((localStorage.getItem('themePreference') || 'auto') === 'auto') {
+    delete document.documentElement.dataset.theme;
   }
 });
 

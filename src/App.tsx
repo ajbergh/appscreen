@@ -3,8 +3,9 @@
  *
  * `App` is responsible for bootstrapping IndexedDB-backed project state into
  * the Zustand app store, resetting in-memory state between project loads, and
- * installing the debounced autosave loop. It intentionally keeps layout and
- * editing UI delegated to `AppLayout` so persistence concerns stay centralized.
+ * installing autosave plus page-lifecycle save flushing. It intentionally keeps
+ * layout and editing UI delegated to `AppLayout` so persistence concerns stay
+ * centralized.
  */
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from './stores/appStore';
@@ -17,9 +18,9 @@ import { AppLayout } from './components/Layout/AppLayout';
  */
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [migrationPromptOpen, setMigrationPromptOpen] = useState(false);
   const initDatabase = useProjectStore((s) => s.initDatabase);
   const loadProjects = useProjectStore((s) => s.loadProjects);
-  const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const loadProjectState = useProjectStore((s) => s.loadProjectState);
   const setState = useAppStore((s) => s.setState);
   const resetState = useAppStore((s) => s.resetState);
@@ -43,7 +44,9 @@ export default function App() {
    * The reset before applying saved state prevents data from a previous project
    * or a failed load from leaking into the current session. Project selection is
    * read from the project store's metadata, then `loadProjectState` hydrates the
-   * heavy screenshot/image state.
+   * heavy screenshot/image state. The project id is read from the store after
+   * `loadProjects()` finishes so IndexedDB metadata cannot be shadowed by the
+   * initial render's default id.
    */
   useEffect(() => {
     /**
@@ -54,9 +57,12 @@ export default function App() {
         await initDatabase();
         await loadProjects();
         resetState();
-        const savedState = await loadProjectState(currentProjectId);
+        const projectId = useProjectStore.getState().currentProjectId;
+        const savedState = await loadProjectState(projectId);
         if (savedState) {
-          setState(savedState as any);
+          const { needsMigration, ...appState } = savedState as any;
+          setState(appState);
+          if (needsMigration) setMigrationPromptOpen(true);
         }
       } catch (e) {
         console.error('Failed to initialize app:', e);
@@ -65,6 +71,16 @@ export default function App() {
       }
     };
     init();
+  }, []);
+
+  /**
+   * Project switching is owned by `projectStore`, so it announces legacy
+   * migration needs through a DOM event that the app shell turns into a modal.
+   */
+  useEffect(() => {
+    const handleMigrationNeeded = () => setMigrationPromptOpen(true);
+    window.addEventListener('appscreen:migration-needed', handleMigrationNeeded);
+    return () => window.removeEventListener('appscreen:migration-needed', handleMigrationNeeded);
   }, []);
 
   /**
@@ -84,6 +100,36 @@ export default function App() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [screenshots, selectedIndex, outputDevice, customWidth, customHeight, currentLanguage, projectLanguages, defaults, activeTab, isLoading]);
+
+  /**
+   * Flushes any pending debounced save when the document is being hidden or
+   * unloaded. IndexedDB writes are asynchronous, but starting the transaction
+   * immediately preserves changes that would otherwise sit in the 800 ms timer.
+   */
+  useEffect(() => {
+    if (isLoading) return;
+
+    const flushSave = () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      void saveState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushSave();
+    };
+
+    window.addEventListener('beforeunload', flushSave);
+    window.addEventListener('pagehide', flushSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', flushSave);
+      window.removeEventListener('pagehide', flushSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isLoading, saveState]);
 
   /**
    * Adds reset buttons to range sliders that are rendered by multiple panels.
@@ -123,5 +169,31 @@ export default function App() {
     );
   }
 
-  return <AppLayout />;
+  return (
+    <>
+      <AppLayout />
+      {migrationPromptOpen && (
+        <div className="modal-overlay visible">
+          <div className="modal" style={{ maxWidth: '460px' }}>
+            <h3>Project Format Updated</h3>
+            <p className="modal-message" style={{ margin: '16px 0' }}>
+              This project used an older save format. AppScreen converted it in memory so each screenshot has its own background, device, and text settings.
+            </p>
+            <div className="modal-buttons">
+              <button className="modal-btn secondary" onClick={() => setMigrationPromptOpen(false)}>Later</button>
+              <button
+                className="modal-btn primary"
+                onClick={async () => {
+                  await saveState();
+                  setMigrationPromptOpen(false);
+                }}
+              >
+                Save Converted Project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

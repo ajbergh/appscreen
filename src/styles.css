@@ -3066,6 +3066,7 @@ input[type="range"]::-webkit-slider-thumb {
     transition: background 0.15s;
     border: 1px solid transparent;
     min-width: 0;
+    min-height: 82px;
 }
 
 .screenshot-item:hover {
@@ -3108,6 +3109,7 @@ input[type="range"]::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     justify-content: center;
+    padding-right: 2px;
 }
 
 .screenshot-name {
@@ -3136,8 +3138,10 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
-    flex: 0 0 auto;
+    flex: 0 0 74px;
     align-items: center;
+    justify-content: flex-end;
+    margin-left: auto;
 }
 
 .screenshot-item:hover .screenshot-actions,
@@ -3146,8 +3150,9 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .screenshot-action-btn {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
     border: none;
     background: transparent;
     color: var(--text-secondary);
@@ -3443,16 +3448,28 @@ input[type="range"]::-webkit-slider-thumb {
 .modal {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 24px;
+    border-radius: 16px;
+    padding: 32px;
     min-width: 320px;
     max-width: 400px;
+    text-align: center;
+    animation: modal-scale-in 0.2s ease;
 }
 
 .modal h3 {
     color: var(--text-primary);
     margin-bottom: 16px;
-    font-size: 16px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+@keyframes modal-scale-in {
+    from {
+        transform: scale(0.9);
+    }
+    to {
+        transform: scale(1);
+    }
 }
 
 .modal-input {
@@ -3473,18 +3490,23 @@ input[type="range"]::-webkit-slider-thumb {
 
 .modal-buttons {
     display: flex;
-    gap: 8px;
-    justify-content: flex-end;
+    gap: 12px;
+    justify-content: stretch;
 }
 
 .modal-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    border: 1px solid var(--border-color);
+    border: none;
     background: var(--bg-tertiary);
     color: var(--text-primary);
+}
+
+.modal-buttons .modal-btn {
+    flex: 1;
 }
 
 .modal-btn.primary {
@@ -3498,7 +3520,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .modal-btn.secondary:hover {
-    background: var(--bg-secondary);
+    background: var(--border-color);
+}
+
+.modal-btn.danger {
+    background: #ff453a;
+    color: white;
+}
+
+.modal-btn.danger:hover {
+    background: #ff6961;
 }
 
 /* Output size select */

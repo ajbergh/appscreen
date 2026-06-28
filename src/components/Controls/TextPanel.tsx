@@ -29,7 +29,6 @@ export function TextPanel() {
   const screenshots = useAppStore((s) => s.screenshots);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
   const projectLanguages = useAppStore((s) => s.projectLanguages);
-  const saveState = useAppStore((s) => s.saveState);
 
   const [translateModalOpen, setTranslateModalOpen] = useState(false);
   const [translateTarget, setTranslateTarget] = useState<'headline' | 'subheadline'>('headline');
@@ -54,9 +53,7 @@ export function TextPanel() {
   const currentHeadline = text.headlines?.[headlineLang] || '';
   const currentSubheadline = text.subheadlines?.[subheadlineLang] || '';
 
-  // Per-language layout settings
-  const layoutLang = text.currentLayoutLang || headlineLang;
-  const langSettings = text.languageSettings?.[layoutLang] || {
+  const globalLayout = {
     headlineSize: text.headlineSize || 100,
     subheadlineSize: text.subheadlineSize || 50,
     position: text.position || 'top',
@@ -65,23 +62,60 @@ export function TextPanel() {
   };
 
   /**
-   * Writes layout settings either globally or into the active language layout.
+   * Mirrors the legacy layout-language selection rules.
+   */
+  const getTextLayoutLanguage = () => {
+    if (text.currentLayoutLang) return text.currentLayoutLang;
+    if (text.headlineEnabled !== false) return headlineLang;
+    if (text.subheadlineEnabled) return subheadlineLang;
+    return headlineLang || subheadlineLang || 'en';
+  };
+
+  const layoutLang = getTextLayoutLanguage();
+
+  /**
+   * Reads or derives a per-language layout object without mutating current state.
+   */
+  const getLanguageLayout = (lang: string) => (
+    text.languageSettings?.[lang]
+    || text.languageSettings?.[text.currentLayoutLang]
+    || text.languageSettings?.[headlineLang]
+    || text.languageSettings?.en
+    || globalLayout
+  );
+
+  const headlineLayout = text.perLanguageLayout ? getLanguageLayout(headlineLang) : globalLayout;
+  const subheadlineLayout = text.perLanguageLayout ? getLanguageLayout(subheadlineLang) : globalLayout;
+  const layoutSettings = text.perLanguageLayout ? getLanguageLayout(layoutLang) : globalLayout;
+
+  const writeTextSettings = (updates: Partial<typeof text>) => {
+    updateScreenshot(selectedIndex, { text: { ...text, ...updates } });
+  };
+
+  /**
+   * Writes layout settings either globally or into the legacy-compatible
+   * language bucket for the edited control.
    */
   const setLangSetting = (key: string, value: unknown) => {
     if (text.perLanguageLayout) {
+      const targetLang = key === 'headlineSize'
+        ? headlineLang
+        : key === 'subheadlineSize'
+          ? subheadlineLang
+          : layoutLang;
       const newLangSettings = { ...text.languageSettings };
-      newLangSettings[layoutLang] = { ...langSettings, [key]: value };
-      setTextSetting('languageSettings', newLangSettings);
+      newLangSettings[targetLang] = { ...getLanguageLayout(targetLang), [key]: value };
+      writeTextSettings({ languageSettings: newLangSettings, currentLayoutLang: targetLang });
     } else {
       setTextSetting(key, value);
     }
   };
 
-  const effectivePosition = text.perLanguageLayout ? langSettings.position : (text.position || 'top');
-  const effectiveOffsetY = text.perLanguageLayout ? langSettings.offsetY : text.offsetY;
-  const effectiveLineHeight = text.perLanguageLayout ? langSettings.lineHeight : text.lineHeight;
-  const effectiveHeadlineSize = text.perLanguageLayout ? langSettings.headlineSize : text.headlineSize;
-  const effectiveSubheadlineSize = text.perLanguageLayout ? langSettings.subheadlineSize : text.subheadlineSize;
+  const effectivePosition = layoutSettings.position;
+  const effectiveOffsetY = layoutSettings.offsetY;
+  const effectiveLineHeight = layoutSettings.lineHeight;
+  const effectiveHeadlineSize = headlineLayout.headlineSize;
+  const effectiveSubheadlineSize = subheadlineLayout.subheadlineSize;
 
   return (
     <div className="tab-content active" id="tab-text">
@@ -106,7 +140,7 @@ export function TextPanel() {
                   <button
                     key={lang}
                     className={`lang-btn${headlineLang === lang ? ' active' : ''}`}
-                    onClick={() => setTextSetting('currentHeadlineLang', lang)}
+                    onClick={() => writeTextSettings({ currentHeadlineLang: lang, currentLayoutLang: lang })}
                     title={lang}
                     style={{
                       padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border-color)',
@@ -203,7 +237,7 @@ export function TextPanel() {
                   <button
                     key={lang}
                     className={`lang-btn${subheadlineLang === lang ? ' active' : ''}`}
-                    onClick={() => setTextSetting('currentSubheadlineLang', lang)}
+                    onClick={() => writeTextSettings({ currentSubheadlineLang: lang, currentLayoutLang: lang })}
                     title={lang}
                     style={{
                       padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border-color)',
@@ -332,28 +366,6 @@ export function TextPanel() {
           </div>
         </div>
 
-        {/* Per-language layout language selector */}
-        {text.perLanguageLayout && projectLanguages.length > 1 && (
-          <div className="control-row" style={{ gap: '4px', flexWrap: 'wrap', marginTop: '8px' }}>
-            <label style={{ fontSize: '11px', color: 'var(--text-secondary)', width: '100%' }}>Layout for:</label>
-            {projectLanguages.map((lang) => (
-              <button
-                key={lang}
-                className={`lang-btn${layoutLang === lang ? ' active' : ''}`}
-                onClick={() => setTextSetting('currentLayoutLang', lang)}
-                title={lang}
-                style={{
-                  padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border-color)',
-                  background: layoutLang === lang ? 'var(--accent)' : 'var(--bg-tertiary)',
-                  color: layoutLang === lang ? 'white' : 'var(--text-secondary)',
-                  borderRadius: '4px', cursor: 'pointer',
-                }}
-              >
-                {LANGUAGE_FLAGS[lang] || '🌐'} {lang.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Real Translate Modal */}

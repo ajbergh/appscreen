@@ -6,7 +6,8 @@
  * when a Google font is selected or previewed, so the dropdown remains usable in
  * offline/sandboxed environments.
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { FALLBACK_GOOGLE_FONTS } from './fontCatalog';
 
 // Google Fonts configuration (from original app.js)
@@ -47,6 +48,58 @@ const POPULAR_FONTS = [
 ];
 
 const ALL_FONT_FALLBACKS = [...new Set([...POPULAR_FONTS, ...FALLBACK_GOOGLE_FONTS])].sort();
+const GOOGLE_FONT_WEIGHTS = ['300', '400', '500', '600', '700', '800', '900'];
+const loadedGoogleFontFamilies = new Set<string>();
+const loadingGoogleFontFamilies = new Map<string, Promise<void>>();
+
+/**
+ * Builds a stable Google Fonts CSS2 URL for the family and weight range used by
+ * the editor. Loading the full text-weight range keeps live previews and export
+ * output aligned for headline, subheadline, and element text controls.
+ */
+function getGoogleFontHref(fontName: string) {
+  return `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@${GOOGLE_FONT_WEIGHTS.join(';')}&display=swap`;
+}
+
+/**
+ * Loads a Google Font once per page session and awaits both the stylesheet and
+ * browser font-face resolution. Network failures resolve successfully so
+ * project state can still store the chosen CSS font-family in offline builds.
+ */
+async function ensureGoogleFont(fontName: string) {
+  if (loadedGoogleFontFamilies.has(fontName)) return;
+  const existing = loadingGoogleFontFamilies.get(fontName);
+  if (existing) return existing;
+
+  const loadPromise = (async () => {
+    const linkId = `google-font-${fontName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    let linkLoad: Promise<void> = Promise.resolve();
+    if (!document.getElementById(linkId)) {
+      const link = document.createElement('link');
+      link.id = linkId;
+      link.href = getGoogleFontHref(fontName);
+      link.rel = 'stylesheet';
+      linkLoad = new Promise((resolve) => {
+        link.onload = () => resolve();
+        link.onerror = () => resolve();
+      });
+      document.head.appendChild(link);
+    }
+
+    await linkLoad;
+    if (document.fonts?.load) {
+      await Promise.all(GOOGLE_FONT_WEIGHTS.map((weight) =>
+        document.fonts.load(`${weight} 16px "${fontName}"`).catch(() => [])
+      ));
+    }
+    loadedGoogleFontFamilies.add(fontName);
+  })().finally(() => {
+    loadingGoogleFontFamilies.delete(fontName);
+  });
+
+  loadingGoogleFontFamilies.set(fontName, loadPromise);
+  return loadPromise;
+}
 
 interface FontPickerProps {
   value: string;
@@ -56,12 +109,17 @@ interface FontPickerProps {
 
 /**
  * Renders a dropdown-style font selector and reports the CSS font-family value.
+ *
+ * The option menu is portaled to `document.body` and positioned from the trigger
+ * rectangle so right-sidebar scrolling and overflow rules cannot hide the
+ * additional System, Popular, or All font lists.
  */
 export function FontPicker({ value, onChange, id }: FontPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [category, setCategory] = useState<'system' | 'popular' | 'all'>('popular');
   const [search, setSearch] = useState('');
-  const [loadedFonts, setLoadedFonts] = useState<Set<string>>(new Set());
+  const [loadedFonts, setLoadedFonts] = useState<Set<string>>(() => new Set(loadedGoogleFontFamilies));
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -81,23 +139,52 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
   }, []);
 
   /**
-   * Loads a Google Fonts stylesheet and marks the family as previewable.
-   *
-   * Network failures are intentionally ignored because choosing the font-family
-   * value should still work with browser fallback fonts and persisted project
-   * data should not depend on a successful preview fetch.
+   * Positions the portaled dropdown near the trigger and flips upward when the
+   * trigger is close to the bottom of the viewport.
+   */
+  const updateDropdownPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const margin = 8;
+    const width = Math.min(300, window.innerWidth - margin * 2);
+    const left = Math.min(
+      Math.max(margin, rect.right - width),
+      window.innerWidth - width - margin
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const opensUp = spaceBelow < 260 && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(220, Math.min(400, (opensUp ? spaceAbove : spaceBelow) - 4));
+    setDropdownStyle({
+      position: 'fixed',
+      top: opensUp ? Math.max(margin, rect.top - availableHeight - 4) : rect.bottom + 4,
+      left,
+      width,
+      maxHeight: availableHeight,
+      zIndex: 10000,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updateDropdownPosition();
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [isOpen, updateDropdownPosition]);
+
+  /**
+   * Loads a Google Fonts family through the shared page-level cache and updates
+   * this picker's local loaded set after the font can be used for previews.
    */
   const loadGoogleFont = useCallback(async (fontName: string) => {
-    if (loadedFonts.has(fontName)) return;
-    try {
-      const link = document.createElement('link');
-      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@300;400;500;600;700;800;900&display=swap`;
-      link.rel = 'stylesheet';
-      document.head.appendChild(link);
-      await document.fonts.load(`400 16px "${fontName}"`);
-      setLoadedFonts(prev => new Set(prev).add(fontName));
-    } catch {}
-  }, [loadedFonts]);
+    await ensureGoogleFont(fontName);
+    setLoadedFonts(new Set(loadedGoogleFontFamilies));
+  }, []);
 
   /**
    * Builds the visible option list for the current category and search text.
@@ -129,13 +216,71 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
 
   const fonts = getFonts();
 
+  const dropdown = isOpen ? createPortal(
+    <div ref={dropdownRef} className="font-picker-dropdown open" style={dropdownStyle}>
+      <div className="font-picker-search">
+        <input
+          type="text"
+          placeholder="Search fonts..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          autoFocus
+        />
+      </div>
+
+      <div className="font-picker-categories">
+        <button type="button" className={`font-category${category === 'system' ? ' active' : ''}`} onClick={() => setCategory('system')}>System</button>
+        <button type="button" className={`font-category${category === 'popular' ? ' active' : ''}`} onClick={() => setCategory('popular')}>Popular</button>
+        <button type="button" className={`font-category${category === 'all' ? ' active' : ''}`} onClick={() => setCategory('all')}>All</button>
+      </div>
+
+      <div className="font-picker-list">
+        {fonts.map((font) => {
+          const isSelected = value === font.value || value.includes(font.name);
+          const isLoaded = font.category === 'system' || loadedFonts.has(font.name);
+
+          return (
+            <div
+              key={font.name}
+              className={`font-option${isSelected ? ' selected' : ''}`}
+              onClick={async () => {
+                if (font.category === 'google') {
+                  await loadGoogleFont(font.name);
+                }
+                onChange(font.value);
+                setIsOpen(false);
+              }}
+              onMouseEnter={() => {
+                if (font.category === 'google' && !loadedFonts.has(font.name)) {
+                  void loadGoogleFont(font.name);
+                }
+              }}
+            >
+              <span className="font-option-name" style={{ fontFamily: isLoaded ? font.value : 'inherit' }}>
+                {font.name}
+              </span>
+              <span className="font-option-category">{font.category}</span>
+            </div>
+          );
+        })}
+        {fonts.length === 0 && (
+          <div className="font-picker-empty">No fonts found</div>
+        )}
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   return (
-    <div className="font-picker" ref={dropdownRef}>
+    <div className="font-picker">
       <button
+        id={id}
         ref={triggerRef}
         className="font-picker-trigger"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
       >
         <span className="font-picker-preview" style={{ fontFamily: value }}>
           {currentFontName}
@@ -145,59 +290,7 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
         </svg>
       </button>
 
-      {isOpen && (
-        <div className="font-picker-dropdown open">
-          <div className="font-picker-search">
-            <input
-              type="text"
-              placeholder="Search fonts..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
-
-          <div className="font-picker-categories">
-            <button className={`font-category${category === 'system' ? ' active' : ''}`} onClick={() => setCategory('system')}>System</button>
-            <button className={`font-category${category === 'popular' ? ' active' : ''}`} onClick={() => setCategory('popular')}>Popular</button>
-            <button className={`font-category${category === 'all' ? ' active' : ''}`} onClick={() => setCategory('all')}>All</button>
-          </div>
-
-          <div className="font-picker-list">
-            {fonts.map((font) => {
-              const isSelected = value === font.value || value.includes(font.name);
-              const isLoaded = font.category === 'system' || loadedFonts.has(font.name);
-
-              return (
-                <div
-                  key={font.name}
-                  className={`font-option${isSelected ? ' selected' : ''}`}
-                  onClick={async () => {
-                    if (font.category === 'google') {
-                      await loadGoogleFont(font.name);
-                    }
-                    onChange(font.value);
-                    setIsOpen(false);
-                  }}
-                  onMouseEnter={() => {
-                    if (font.category === 'google' && !loadedFonts.has(font.name)) {
-                      loadGoogleFont(font.name);
-                    }
-                  }}
-                >
-                  <span className="font-option-name" style={{ fontFamily: isLoaded ? font.value : 'inherit' }}>
-                    {font.name}
-                  </span>
-                  <span className="font-option-category">{font.category}</span>
-                </div>
-              );
-            })}
-            {fonts.length === 0 && (
-              <div className="font-picker-empty">No fonts found</div>
-            )}
-          </div>
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }

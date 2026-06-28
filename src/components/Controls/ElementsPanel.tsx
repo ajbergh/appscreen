@@ -5,7 +5,7 @@
  * pipeline. This panel manages list ordering, localized text values, icon SVG
  * caching/colorization, and element-specific styling controls.
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { FontPicker } from '../UI/FontPicker';
 import { EmojiPicker, IconPicker, TranslateModal } from '../Modals/AllModals';
@@ -26,8 +26,9 @@ export function ElementsPanel() {
   const selectedIndex = useAppStore((s) => s.selectedIndex);
   const screenshots = useAppStore((s) => s.screenshots);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
+  const selectedElementId = useAppStore((s) => s.selectedElementId);
+  const setSelectedElementId = useAppStore((s) => s.setSelectedElementId);
 
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [translateModalOpen, setTranslateModalOpen] = useState(false);
@@ -35,6 +36,12 @@ export function ElementsPanel() {
 
   const elements = currentScreenshot?.elements || [];
   const selectedElement = elements.find((el) => el.id === selectedElementId) || null;
+
+  useEffect(() => {
+    if (selectedElementId && !elements.some((el) => el.id === selectedElementId)) {
+      setSelectedElementId(null);
+    }
+  }, [elements, selectedElementId, setSelectedElementId]);
 
   /**
    * Returns a colorized data URL for a Lucide icon.
@@ -60,7 +67,6 @@ export function ElementsPanel() {
     }
     const colorized = svgText
       .replace(/stroke="currentColor"/g, `stroke="${color}"`)
-      .replace(/fill="currentColor"/g, `fill="${color}"`)
       .replace(/stroke-width="[^"]*"/g, `stroke-width="${strokeWidth}"`);
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(colorized)}`;
   };
@@ -245,7 +251,15 @@ export function ElementsPanel() {
               <div className="element-item-thumb">
                 {el.type === 'graphic' && el.image ? <img src={el.image.src} alt={el.name} /> :
                  el.type === 'emoji' ? <span className="emoji-thumb">{el.emoji}</span> :
-                 el.type === 'icon' && el.image ? <img src={el.image.src} alt={el.name} style={{ padding: '4px', filter: 'var(--icon-thumb-filter, none)' }} /> : <span>📝</span>}
+                 el.type === 'icon' && el.image ? <img src={el.image.src} alt={el.name} style={{ padding: '4px', filter: 'var(--icon-thumb-filter, none)' }} /> : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h16" />
+                    <path d="M4 12h10" />
+                    <path d="M4 17h16" />
+                    <path d="M17 10v7" />
+                    <path d="M14.5 10h5" />
+                  </svg>
+                 )}
               </div>
               <div className="element-item-info">
                 <div className="element-item-name">{el.type === 'text' ? (getElementText(el) || 'Text') : el.type === 'emoji' ? `${el.emoji} ${el.name}` : el.name}</div>

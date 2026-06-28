@@ -30,14 +30,26 @@ export function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+        <div className="modal-icon modal-icon-info" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5" />
+            <path d="M12 8h.01" />
+          </svg>
+        </div>
         <h3>About App Store Screenshot Generator</h3>
-        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '16px' }}>
-          <p>A free, open-source tool for creating beautiful App Store screenshots with customizable backgrounds, text overlays, and 3D device mockups.</p>
+        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '16px', textAlign: 'center' }}>
+          <p>A free, open-source tool for creating App Store screenshots with customizable backgrounds, text overlays, and device mockups.</p>
           <p style={{ marginTop: '8px' }}>
-            <strong>Built by <a href="https://yuzuhub.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>YuzuHub</a></strong> — We build smart AI products in Düsseldorf, Germany.
+            Vibe coded and created by Stefan from <a href="https://yuzuhub.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>yuzuhub.com</a>.
           </p>
           <p style={{ marginTop: '8px' }}>
-            <strong>License:</strong> MIT License
+            Released under the MIT License.
+          </p>
+          <p style={{ marginTop: '8px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
+            <a href="https://yuzu-hub.github.io/appscreen/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Live Version</a>
+            <span>·</span>
+            <a href="https://github.com/YUZU-Hub/appscreen" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>GitHub Repo</a>
           </p>
           <p style={{ marginTop: '8px' }}>
             <strong>Credits:</strong>
@@ -58,7 +70,7 @@ export function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 // LLM provider config used by browser-side translation and title generation flows.
 const LLM_PROVIDERS = {
   anthropic: {
-    name: 'Claude (Anthropic)',
+    name: 'Anthropic (Claude)',
     storageKey: 'claudeApiKey',
     modelStorageKey: 'anthropicModel',
     keyPrefix: 'sk-ant-',
@@ -87,8 +99,8 @@ const LLM_PROVIDERS = {
     modelStorageKey: 'googleModel',
     keyPrefix: 'AIza',
     models: [
-      { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview ($$$)' },
       { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview ($$)' },
+      { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview ($$$)' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite ($)' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash ($$)' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro ($$$)' },
@@ -99,6 +111,58 @@ const LLM_PROVIDERS = {
 
 export { LLM_PROVIDERS };
 
+const LANGUAGE_OPTIONS = [
+  { code: 'en', name: 'English', flag: '🇺🇸' },
+  { code: 'en-gb', name: 'English (UK)', flag: '🇬🇧' },
+  { code: 'de', name: 'German', flag: '🇩🇪' },
+  { code: 'fr', name: 'French', flag: '🇫🇷' },
+  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+  { code: 'it', name: 'Italian', flag: '🇮🇹' },
+  { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+  { code: 'pt-br', name: 'Portuguese (Brazil)', flag: '🇧🇷' },
+  { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+  { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+  { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+  { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+  { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+  { code: 'zh-tw', name: 'Chinese (Taiwan)', flag: '🇹🇼' },
+  { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+  { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+  { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+  { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+  { code: 'sv', name: 'Swedish', flag: '🇸🇪' },
+  { code: 'da', name: 'Danish', flag: '🇩🇰' },
+  { code: 'no', name: 'Norwegian', flag: '🇳🇴' },
+  { code: 'fi', name: 'Finnish', flag: '🇫🇮' },
+  { code: 'th', name: 'Thai', flag: '🇹🇭' },
+  { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+  { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+  { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
+];
+
+const LANGUAGE_LABELS = Object.fromEntries(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang]));
+
+const PROVIDER_UI: Record<keyof typeof LLM_PROVIDERS, { shortName: string; icon: string; description: string; helpUrl: string }> = {
+  anthropic: {
+    shortName: 'Claude',
+    icon: '✦',
+    description: 'Best for polished marketing copy and nuanced translation review.',
+    helpUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  openai: {
+    shortName: 'OpenAI',
+    icon: '◎',
+    description: 'Strong general-purpose translation and structured JSON output.',
+    helpUrl: 'https://platform.openai.com/api-keys',
+  },
+  google: {
+    shortName: 'Google',
+    icon: '◆',
+    description: 'Gemini models for translation and multimodal title generation.',
+    helpUrl: 'https://aistudio.google.com/app/apikey',
+  },
+};
+
 // ===== Settings Modal =====
 /**
  * Lets users choose theme and AI provider settings. API keys and model choices
@@ -106,7 +170,7 @@ export { LLM_PROVIDERS };
  */
 export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
-  const [theme, setTheme] = useState(localStorage.getItem('themePreference') || 'dark');
+  const [theme, setTheme] = useState(localStorage.getItem('themePreference') || 'auto');
   const [aiProvider, setAiProvider] = useState<keyof typeof LLM_PROVIDERS>(
     (localStorage.getItem('aiProvider') as keyof typeof LLM_PROVIDERS) || 'anthropic'
   );
@@ -121,6 +185,17 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     google: localStorage.getItem('googleModel') || LLM_PROVIDERS.google.defaultModel,
   }));
   const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const status: Record<string, string> = {};
+    (Object.keys(LLM_PROVIDERS) as Array<keyof typeof LLM_PROVIDERS>).forEach((provider) => {
+      const config = LLM_PROVIDERS[provider];
+      status[provider] = localStorage.getItem(config.storageKey) ? 'API key saved' : '';
+    });
+    setKeyStatus(status);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -135,7 +210,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     if (theme === 'light' || theme === 'dark') {
       document.documentElement.dataset.theme = theme;
     } else {
-      document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      delete document.documentElement.dataset.theme;
     }
 
     // Save provider.
@@ -166,6 +241,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
   };
 
   const curProvider = LLM_PROVIDERS[aiProvider];
+  const providerUi = PROVIDER_UI[aiProvider];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -176,7 +252,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
         <div className="control-group">
           <label className="control-label">Theme</label>
           <div className="btn-group">
-            {(['dark', 'light', 'auto'] as const).map((t) => (
+            {(['auto', 'light', 'dark'] as const).map((t) => (
               <button key={t} className={theme === t ? 'active' : ''} onClick={() => setTheme(t)}>
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
@@ -190,7 +266,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
           <div className="btn-group">
             {(Object.keys(LLM_PROVIDERS) as Array<keyof typeof LLM_PROVIDERS>).map((p) => (
               <button key={p} className={aiProvider === p ? 'active' : ''} onClick={() => setAiProvider(p)}>
-                {p === 'anthropic' ? 'Claude' : p === 'openai' ? 'OpenAI' : 'Google'}
+                {LLM_PROVIDERS[p].name}
               </button>
             ))}
           </div>
@@ -198,22 +274,43 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
         {/* Per-provider API key and model */}
         <div className="control-group" style={{ background: 'var(--bg-tertiary)', borderRadius: '10px', padding: '14px' }}>
-          <label className="control-label" style={{ marginBottom: '10px', display: 'block' }}>
-            {curProvider.name} — API Key
-          </label>
-          <input
-            type="password"
-            value={apiKeys[aiProvider] || ''}
-            onChange={(e) => setApiKeys((prev) => ({ ...prev, [aiProvider]: e.target.value }))}
-            placeholder={`Starts with ${curProvider.keyPrefix}...`}
-            className="modal-input"
-            style={{ marginBottom: '8px' }}
-          />
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--accent-subtle)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+              {providerUi.icon}
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="control-label" style={{ marginBottom: '4px', display: 'block' }}>
+                {curProvider.name} — API Key
+              </label>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.4 }}>{providerUi.description}</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <input
+              type={showKeys[aiProvider] ? 'text' : 'password'}
+              value={apiKeys[aiProvider] || ''}
+              onChange={(e) => setApiKeys((prev) => ({ ...prev, [aiProvider]: e.target.value }))}
+              placeholder={`Starts with ${curProvider.keyPrefix}...`}
+              className="modal-input"
+              style={{ marginBottom: 0, flex: 1 }}
+            />
+            <button
+              type="button"
+              className="modal-btn secondary"
+              onClick={() => setShowKeys((prev) => ({ ...prev, [aiProvider]: !prev[aiProvider] }))}
+              style={{ padding: '8px 10px' }}
+            >
+              {showKeys[aiProvider] ? 'Hide' : 'Show'}
+            </button>
+          </div>
           {keyStatus[aiProvider] && (
-            <p style={{ fontSize: '11px', color: keyStatus[aiProvider].startsWith('✓') ? '#30d158' : '#ff453a', marginBottom: '8px' }}>
+            <p style={{ fontSize: '11px', color: keyStatus[aiProvider].includes('saved') ? '#30d158' : '#ff453a', marginBottom: '8px' }}>
               {keyStatus[aiProvider]}
             </p>
           )}
+          <a href={providerUi.helpUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '12px', textDecoration: 'none' }}>
+            Get your API key from {providerUi.shortName}
+          </a>
           <label className="control-label" style={{ marginBottom: '6px', display: 'block', marginTop: '8px' }}>Model</label>
           <select
             value={models[aiProvider] || curProvider.defaultModel}
@@ -231,7 +328,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
-          <button className="modal-btn primary" onClick={handleSave}>Save</button>
+          <button className="modal-btn primary" onClick={handleSave}>Save Settings</button>
         </div>
       </div>
     </div>
@@ -254,56 +351,47 @@ export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   const defaults = useAppStore((s) => s.defaults);
 
   const [languages, setLanguages] = useState<string[]>(projectLanguages);
+  const availableToAdd = LANGUAGE_OPTIONS.filter((lang) => !languages.includes(lang.code));
+  const [selectedAddLanguage, setSelectedAddLanguage] = useState(availableToAdd[0]?.code || '');
 
-  if (!isOpen) return null;
-
-  const allLanguages = [
-    { code: 'en', name: 'English', flag: '🇺🇸' },
-    { code: 'en-gb', name: 'English (UK)', flag: '🇬🇧' },
-    { code: 'de', name: 'German', flag: '🇩🇪' },
-    { code: 'fr', name: 'French', flag: '🇫🇷' },
-    { code: 'es', name: 'Spanish', flag: '🇪🇸' },
-    { code: 'it', name: 'Italian', flag: '🇮🇹' },
-    { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
-    { code: 'pt-br', name: 'Portuguese (BR)', flag: '🇧🇷' },
-    { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
-    { code: 'ru', name: 'Russian', flag: '🇷🇺' },
-    { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
-    { code: 'ko', name: 'Korean', flag: '🇰🇷' },
-    { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
-    { code: 'zh-tw', name: 'Chinese (TW)', flag: '🇹🇼' },
-    { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
-    { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
-    { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
-    { code: 'pl', name: 'Polish', flag: '🇵🇱' },
-    { code: 'sv', name: 'Swedish', flag: '🇸🇪' },
-    { code: 'da', name: 'Danish', flag: '🇩🇰' },
-    { code: 'no', name: 'Norwegian', flag: '🇳🇴' },
-    { code: 'fi', name: 'Finnish', flag: '🇫🇮' },
-    { code: 'th', name: 'Thai', flag: '🇹🇭' },
-    { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
-    { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
-    { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
-  ];
+  useEffect(() => {
+    if (!isOpen) return;
+    setLanguages(projectLanguages);
+    const nextAdd = LANGUAGE_OPTIONS.find((lang) => !projectLanguages.includes(lang.code))?.code || '';
+    setSelectedAddLanguage(nextAdd);
+  }, [isOpen, projectLanguages]);
 
   /**
-   * Toggles a project language in local modal state. English is protected as the
-   * baseline fallback language for screenshots and defaults.
+   * Adds the chosen language to local modal state.
    */
-  const toggleLanguage = (code: string) => {
-    if (code === 'en') return; // English is always present
-    setLanguages(prev =>
-      prev.includes(code) ? prev.filter(l => l !== code) : [...prev, code]
-    );
+  const addLanguage = () => {
+    if (!selectedAddLanguage || languages.includes(selectedAddLanguage)) return;
+    const next = [...languages, selectedAddLanguage];
+    setLanguages(next);
+    setSelectedAddLanguage(LANGUAGE_OPTIONS.find((lang) => !next.includes(lang.code))?.code || '');
   };
+
+  /**
+   * Removes a language from local modal state while preserving at least one
+   * language and keeping English as the baseline fallback.
+   */
+  const removeLanguage = (code: string) => {
+    if (code === 'en' || languages.length <= 1) return;
+    setLanguages((prev) => prev.filter((lang) => lang !== code));
+  };
+
+  if (!isOpen) return null;
 
   /**
    * Applies the modal language set to the app store and removes stale localized
    * image/text/default records for languages that were unchecked.
    */
   const handleDone = () => {
+    const addedLangs = languages.filter(l => !projectLanguages.includes(l));
+    addedLangs.forEach((lang) => useAppStore.getState().addProjectLanguage(lang));
+
     const store = useAppStore.getState();
-    const removedLangs = projectLanguages.filter(l => !languages.includes(l));
+    const removedLangs = store.projectLanguages.filter(l => !languages.includes(l));
 
     // Clean up removed languages from all screenshots
     if (removedLangs.length > 0) {
@@ -357,31 +445,56 @@ export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <h3>Edit Languages</h3>
+        <h3>Languages</h3>
         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-          Select languages for your project. You can add translations for each screenshot.
+          Manage the languages used by screenshots, text, and localized source images.
         </p>
         <div style={{ overflowY: 'auto', flex: 1, marginBottom: '16px' }}>
-          {allLanguages.map((lang) => (
-            <div
-              key={lang.code}
-              className={`language-option${languages.includes(lang.code) ? ' selected' : ''}`}
-              onClick={() => toggleLanguage(lang.code)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
-                borderRadius: '6px', cursor: 'pointer', marginBottom: '2px',
-                background: languages.includes(lang.code) ? 'var(--accent-subtle)' : 'transparent',
-              }}
+          <label className="control-label" style={{ display: 'block', marginBottom: '8px' }}>Current Languages</label>
+          {languages.map((code) => {
+            const lang = LANGUAGE_LABELS[code] || { code, name: code.toUpperCase(), flag: '🌐' };
+            const isCurrent = code === currentLanguage;
+            const canRemove = code !== 'en' && languages.length > 1;
+            return (
+              <div
+                key={code}
+                className="language-option selected"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
+                  borderRadius: '6px', marginBottom: '4px', background: 'var(--accent-subtle)',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>{lang.flag}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1 }}>{lang.name}</span>
+                {isCurrent && <span style={{ fontSize: '10px', color: 'var(--accent)', textTransform: 'uppercase' }}>Current</span>}
+                <button
+                  className="modal-btn secondary"
+                  disabled={!canRemove}
+                  onClick={() => removeLanguage(code)}
+                  style={{ padding: '4px 8px', opacity: canRemove ? 1 : 0.45 }}
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
+
+          <div className="language-menu-divider" style={{ margin: '14px 0' }} />
+          <label className="control-label" style={{ display: 'block', marginBottom: '8px' }}>Add a language</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <select
+              value={selectedAddLanguage}
+              onChange={(e) => setSelectedAddLanguage(e.target.value)}
+              disabled={availableToAdd.length === 0}
+              style={{ flex: 1, padding: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)' }}
             >
-              <span style={{ fontSize: '18px' }}>{lang.flag}</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1 }}>{lang.name}</span>
-              {languages.includes(lang.code) && (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </div>
-          ))}
+              {availableToAdd.length === 0 && <option value="">All languages added</option>}
+              {availableToAdd.map((lang) => (
+                <option key={lang.code} value={lang.code}>{lang.flag} {lang.name}</option>
+              ))}
+            </select>
+            <button className="modal-btn secondary" onClick={addLanguage} disabled={!selectedAddLanguage}>Add</button>
+          </div>
         </div>
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>

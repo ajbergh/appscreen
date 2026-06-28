@@ -8,7 +8,7 @@
  */
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '../../stores/appStore';
-import { getScreenshotImage, renderScreenshotToCanvas, useCanvas } from '../../hooks/useCanvas';
+import { getScreenshotImage, renderScreenshotToCanvas, setActiveSnapGuides, useCanvas } from '../../hooks/useCanvas';
 import { useThreeJS } from '../../hooks/useThreeJS';
 import { getCanvasDimensions } from '../../canvas/renderer';
 
@@ -20,13 +20,14 @@ export function CanvasArea() {
   const canvasRef = useCanvas();
   const threeContainerRef = useRef<HTMLDivElement>(null);
   const elementDragRef = useRef<{
+    kind: 'element' | 'popout';
     id: string;
     startX: number;
     startY: number;
     originalX: number;
     originalY: number;
   } | null>(null);
-  const { initScene, loadPhoneModel, setRotation, setFrameColor, updateScreenTexture, setupDragRotate, stateRef } = useThreeJS(threeContainerRef);
+  const { initScene, loadPhoneModel, preloadPhoneModel, setRotation, setFrameColor, updateScreenTexture, setupDragRotate, stateRef } = useThreeJS(threeContainerRef);
   const [showThreeJS, setShowThreeJS] = useState(false);
 
   // Side preview canvas refs.
@@ -48,6 +49,7 @@ export function CanvasArea() {
   const setScreenshotSetting = useAppStore((s) => s.setScreenshotSetting);
   const updateScreenshot = useAppStore((s) => s.updateScreenshot);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
+  const setSelectedElementId = useAppStore((s) => s.setSelectedElementId);
   const saveState = useAppStore((s) => s.saveState);
   const outputDevice = useAppStore((s) => s.outputDevice);
   const customWidth = useAppStore((s) => s.customWidth);
@@ -64,9 +66,12 @@ export function CanvasArea() {
       return;
     }
     const direction = selectedIndex > previous ? -1 : 1;
+    const slideDims = getCanvasDimensions(outputDevice, customWidth, customHeight);
+    const slideScale = Math.min(400 / slideDims.width, 700 / slideDims.height);
+    const slideOffset = slideDims.width * slideScale + 10;
     strip.classList.add('sliding');
     strip.style.transition = 'none';
-    strip.style.transform = `translateX(${direction * 36}px)`;
+    strip.style.transform = `translateX(${direction * slideOffset}px)`;
     requestAnimationFrame(() => {
       strip.style.transition = 'transform 0.3s ease-out';
       strip.style.transform = 'translateX(0)';
@@ -76,14 +81,30 @@ export function CanvasArea() {
       }, 320);
     });
     previousIndexRef.current = selectedIndex;
-  }, [selectedIndex]);
+  }, [selectedIndex, outputDevice, customWidth, customHeight]);
 
-  // Initialize or refresh the Three.js model whenever the selected screenshot requests 3D rendering.
+  // Initialize or refresh the Three.js model whenever the project needs 3D rendering.
   useEffect(() => {
     const currentScreenshot = screenshots[selectedIndex];
     const use3D = currentScreenshot?.screenshot?.use3D;
+    const projectUses3D = screenshots.some((screenshot) => screenshot.screenshot?.use3D);
+
+    if (projectUses3D && !stateRef.current.isInitialized) {
+      initScene();
+      const first3D = screenshots.find((screenshot) => screenshot.screenshot?.use3D);
+      loadPhoneModel(first3D?.screenshot?.device3D || 'iphone');
+    }
 
     if (use3D) {
+      const refreshTextureWhenReady = (attempt = 0) => {
+        const img = getScreenshotImage(currentScreenshot, currentLanguage, projectLanguages);
+        if (img && stateRef.current.phoneModelLoaded) {
+          updateScreenTexture(img);
+        } else if (attempt < 20) {
+          window.setTimeout(() => refreshTextureWhenReady(attempt + 1), 50);
+        }
+      };
+
       if (!showThreeJS) {
         setShowThreeJS(true);
         initScene();
@@ -91,10 +112,7 @@ export function CanvasArea() {
       } else if (currentScreenshot?.screenshot?.device3D !== stateRef.current.currentDeviceModel) {
         loadPhoneModel(currentScreenshot?.screenshot?.device3D || 'iphone');
       }
-      const img = getScreenshotImage(currentScreenshot, currentLanguage, projectLanguages);
-      if (img && stateRef.current.phoneModelLoaded) {
-        updateScreenTexture(img);
-      }
+      refreshTextureWhenReady();
       setFrameColor(currentScreenshot?.screenshot?.frameColor, currentScreenshot?.screenshot?.device3D || 'iphone');
       if (currentScreenshot?.screenshot?.rotation3D) {
         const { x, y, z } = currentScreenshot.screenshot.rotation3D;
@@ -104,6 +122,16 @@ export function CanvasArea() {
       setShowThreeJS(false);
     }
   }, [screenshots, selectedIndex, currentLanguage, projectLanguages]);
+
+  // Preload nearby 3D models so side previews and slide navigation do not flash.
+  useEffect(() => {
+    [selectedIndex - 2, selectedIndex - 1, selectedIndex + 1, selectedIndex + 2].forEach((index) => {
+      const screenshot = screenshots[index];
+      if (screenshot?.screenshot?.use3D) {
+        preloadPhoneModel(screenshot.screenshot.device3D || 'iphone');
+      }
+    });
+  }, [screenshots, selectedIndex, preloadPhoneModel]);
 
   // Two-finger horizontal swipe to navigate screenshots.
   useEffect(() => {
@@ -254,6 +282,30 @@ export function CanvasArea() {
   };
 
   /**
+   * Returns the topmost draggable popout under a canvas-space point.
+   */
+  const hitTestPopout = (x: number, y: number) => {
+    const screenshot = screenshots[selectedIndex];
+    if (!screenshot) return null;
+    const image = getScreenshotImage(screenshot, currentLanguage, projectLanguages);
+    if (!image) return null;
+    const popouts = screenshot.popouts || [];
+    for (let i = popouts.length - 1; i >= 0; i--) {
+      const popout = popouts[i];
+      const cx = dims.width * (popout.x / 100);
+      const cy = dims.height * (popout.y / 100);
+      const width = dims.width * (popout.width / 100);
+      const sw = (popout.cropWidth / 100) * image.width;
+      const sh = (popout.cropHeight / 100) * image.height;
+      const height = width * (sh / sw);
+      if (x >= cx - width / 2 && x <= cx + width / 2 && y >= cy - height / 2 && y <= cy + height / 2) {
+        return popout;
+      }
+    }
+    return null;
+  };
+
+  /**
    * Returns the topmost draggable overlay element under a canvas-space point.
    * Element bounds are reconstructed from the same percentage-based fields used
    * by the renderer, including text and graphic aspect-ratio adjustments.
@@ -261,21 +313,37 @@ export function CanvasArea() {
   const hitTestElement = (x: number, y: number) => {
     const screenshot = screenshots[selectedIndex];
     const elements = screenshot?.elements || [];
-    for (let i = elements.length - 1; i >= 0; i--) {
-      const el = elements[i];
-      const cx = dims.width * (el.x / 100);
-      const cy = dims.height * (el.y / 100);
-      const width = dims.width * (el.width / 100);
-      let height = width;
-      if (el.type === 'text') {
-        height = Math.max(el.fontSize * 1.3, width * 0.35);
-      } else if (el.type === 'graphic' && el.image) {
-        height = width * (el.image.height / el.image.width);
-      }
-      if (x >= cx - width / 2 && x <= cx + width / 2 && y >= cy - height / 2 && y <= cy + height / 2) {
-        return el;
+    const layers = ['above-text', 'above-screenshot', 'behind-screenshot'];
+    for (const layer of layers) {
+      const layerElements = elements.filter((el) => el.layer === layer);
+      for (let i = layerElements.length - 1; i >= 0; i--) {
+        const el = layerElements[i];
+        const cx = dims.width * (el.x / 100);
+        const cy = dims.height * (el.y / 100);
+        const width = dims.width * (el.width / 100);
+        let height = width;
+        if (el.type === 'text') {
+          height = el.fontSize * 1.5;
+        } else if (el.type === 'graphic' && el.image) {
+          height = width * (el.image.height / el.image.width);
+        }
+        if (x >= cx - width / 2 && x <= cx + width / 2 && y >= cy - height / 2 && y <= cy + height / 2) {
+          return el;
+        }
       }
     }
+    return null;
+  };
+
+  /**
+   * Resolves the topmost canvas object that can be moved directly from the
+   * preview, with popouts taking priority over decorative elements.
+   */
+  const hitTestCanvasTarget = (x: number, y: number) => {
+    const popout = hitTestPopout(x, y);
+    if (popout) return { kind: 'popout' as const, target: popout };
+    const element = hitTestElement(x, y);
+    if (element) return { kind: 'element' as const, target: element };
     return null;
   };
 
@@ -287,30 +355,53 @@ export function CanvasArea() {
     const screenshot = screenshots[selectedIndex];
     if (!screenshot) return;
     const point = getCanvasPoint(e);
-    const el = hitTestElement(point.x, point.y);
-    if (!el) return;
+    const target = hitTestCanvasTarget(point.x, point.y);
+    if (!target) return;
+
+    if (target.kind === 'popout') {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      document.getElementById('canvas-wrapper')?.classList.add('element-dragging');
+      setActiveTab('popouts');
+      setSelectedElementId(null);
+      elementDragRef.current = {
+        kind: 'popout',
+        id: target.target.id,
+        startX: point.x,
+        startY: point.y,
+        originalX: target.target.x,
+        originalY: target.target.y,
+      };
+      return;
+    }
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     document.getElementById('canvas-wrapper')?.classList.add('element-dragging');
     setActiveTab('elements');
+    setSelectedElementId(target.target.id);
     elementDragRef.current = {
-      id: el.id,
+      kind: 'element',
+      id: target.target.id,
       startX: point.x,
       startY: point.y,
-      originalX: el.x,
-      originalY: el.y,
+      originalX: target.target.x,
+      originalY: target.target.y,
     };
   };
 
   /**
-   * Updates the dragged element's percentage position, snapping to center lines
-   * near 50% and drawing transient alignment guides on top of the live canvas.
+   * Updates hover cursor state when idle and, while dragging, moves the active
+   * element/popout with center-line snapping and transient alignment guides.
    */
-  const handleElementPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = elementDragRef.current;
     const screenshot = screenshots[selectedIndex];
-    if (!drag || !screenshot) return;
     const point = getCanvasPoint(e);
+    const wrapper = document.getElementById('canvas-wrapper');
+    if (!drag || !screenshot) {
+      wrapper?.classList.toggle('element-hover', !!(screenshot && hitTestCanvasTarget(point.x, point.y)));
+      return;
+    }
     const dx = ((point.x - drag.startX) / dims.width) * 100;
     const dy = ((point.y - drag.startY) / dims.height) * 100;
     let nextX = Math.max(0, Math.min(100, drag.originalX + dx));
@@ -319,30 +410,21 @@ export function CanvasArea() {
     const snapY = Math.abs(nextY - 50) <= 1.5;
     if (snapX) nextX = 50;
     if (snapY) nextY = 50;
-    updateScreenshot(selectedIndex, {
-      elements: (screenshot.elements || []).map((el) =>
-        el.id === drag.id ? { ...el, x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 } : el
-      ),
-    });
-    const ctx = e.currentTarget.getContext('2d');
-    if (ctx && (snapX || snapY)) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(10, 132, 255, 0.85)';
-      ctx.lineWidth = Math.max(2, dims.width * 0.003);
-      ctx.setLineDash([dims.width * 0.015, dims.width * 0.01]);
-      if (snapX) {
-        ctx.beginPath();
-        ctx.moveTo(dims.width / 2, 0);
-        ctx.lineTo(dims.width / 2, dims.height);
-        ctx.stroke();
-      }
-      if (snapY) {
-        ctx.beginPath();
-        ctx.moveTo(0, dims.height / 2);
-        ctx.lineTo(dims.width, dims.height / 2);
-        ctx.stroke();
-      }
-      ctx.restore();
+    setActiveSnapGuides({ x: snapX ? 50 : null, y: snapY ? 50 : null });
+    const roundedX = Math.round(nextX * 10) / 10;
+    const roundedY = Math.round(nextY * 10) / 10;
+    if (drag.kind === 'popout') {
+      updateScreenshot(selectedIndex, {
+        popouts: (screenshot.popouts || []).map((popout) =>
+          popout.id === drag.id ? { ...popout, x: roundedX, y: roundedY } : popout
+        ),
+      });
+    } else {
+      updateScreenshot(selectedIndex, {
+        elements: (screenshot.elements || []).map((el) =>
+          el.id === drag.id ? { ...el, x: roundedX, y: roundedY } : el
+        ),
+      });
     }
   };
 
@@ -353,8 +435,17 @@ export function CanvasArea() {
     if (!elementDragRef.current) return;
     e.currentTarget.releasePointerCapture(e.pointerId);
     elementDragRef.current = null;
+    setActiveSnapGuides({ x: null, y: null });
     document.getElementById('canvas-wrapper')?.classList.remove('element-dragging');
+    updateScreenshot(selectedIndex, {});
     saveState();
+  };
+
+  /** Clears idle hover affordances when the pointer leaves the preview canvas. */
+  const handleCanvasPointerLeave = () => {
+    if (!elementDragRef.current) {
+      document.getElementById('canvas-wrapper')?.classList.remove('element-hover');
+    }
   };
 
   return (
@@ -365,7 +456,6 @@ export function CanvasArea() {
           ref={farLeftContainerRef}
           className="side-preview side-preview-far-left hidden"
           id="side-preview-far-left"
-          onClick={() => { if (selectedIndex >= 2) selectScreenshot(selectedIndex - 2); }}
         >
           <canvas ref={farLeftPreviewRef} id="preview-canvas-far-left" />
         </div>
@@ -386,9 +476,10 @@ export function CanvasArea() {
             ref={canvasRef}
             id="preview-canvas"
             onPointerDown={handleElementPointerDown}
-            onPointerMove={handleElementPointerMove}
+            onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleElementPointerUp}
             onPointerCancel={handleElementPointerUp}
+            onPointerLeave={handleCanvasPointerLeave}
             style={hasScreenshots ? {
               width: `${dims.width * scale}px`,
               height: `${dims.height * scale}px`,
@@ -427,7 +518,6 @@ export function CanvasArea() {
           ref={farRightContainerRef}
           className="side-preview side-preview-far-right hidden"
           id="side-preview-far-right"
-          onClick={() => { if (selectedIndex < screenshots.length - 2) selectScreenshot(selectedIndex + 2); }}
         >
           <canvas ref={farRightPreviewRef} id="preview-canvas-far-right" />
         </div>

@@ -78,7 +78,7 @@ function roundRectPath(
  */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
-  const paragraphs = text.split('\n');
+  const paragraphs = text.split(/\r?\n/);
 
   for (const paragraph of paragraphs) {
     if (!paragraph) { lines.push(''); continue; }
@@ -419,41 +419,34 @@ function getEffectiveLayout(text: TextSettings, lang: string) {
 }
 
 /**
- * Draws localized headline/subheadline text for a requested output language.
+ * Draws localized headline/subheadline text.
  *
- * Language resolution follows the export fallback chain: requested language,
- * the currently selected field language, then English. Per-language layout uses
- * the requested language when available and falls back to the global layout.
+ * Language resolution follows the legacy field-pointer model: headline and
+ * subheadline text are read from `currentHeadlineLang` and
+ * `currentSubheadlineLang`. Export code that renders every language passes a
+ * cloned text object with those pointers set to the export language.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
   text: TextSettings,
-  currentLanguage: string
+  _currentLanguage: string
 ): void {
   const headlineEnabled = text.headlineEnabled !== false;
   const subheadlineEnabled = text.subheadlineEnabled || false;
 
-  const requestedLang = currentLanguage || 'en';
-  const headlineLang = text.headlines?.[requestedLang] !== undefined
-    ? requestedLang
-    : (text.currentHeadlineLang || 'en');
-  const subheadlineLang = text.subheadlines?.[requestedLang] !== undefined
-    ? requestedLang
-    : (text.currentSubheadlineLang || 'en');
-
-  const layoutLang = text.languageSettings?.[requestedLang]
-    ? requestedLang
-    : (text.currentLayoutLang || headlineLang);
+  const headlineLang = text.currentHeadlineLang || 'en';
+  const subheadlineLang = text.currentSubheadlineLang || 'en';
+  const layoutLang = text.currentLayoutLang || headlineLang;
   const headlineLayout = getEffectiveLayout(text, headlineLang);
   const subheadlineLayout = getEffectiveLayout(text, subheadlineLang);
   const layoutSettings = getEffectiveLayout(text, layoutLang);
 
   const headline = headlineEnabled && text.headlines
-    ? (text.headlines[headlineLang] || text.headlines[text.currentHeadlineLang] || text.headlines.en || '')
+    ? (text.headlines[headlineLang] || '')
     : '';
   const subheadline = subheadlineEnabled && text.subheadlines
-    ? (text.subheadlines[subheadlineLang] || text.subheadlines[text.currentSubheadlineLang] || text.subheadlines.en || '')
+    ? (text.subheadlines[subheadlineLang] || '')
     : '';
 
   if (!headline && !subheadline) return;

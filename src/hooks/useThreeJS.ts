@@ -345,6 +345,7 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     if (!state.scene || state.phoneModelLoading) return;
     const config = deviceConfigs[deviceType];
     if (!config) return;
+    if (state.currentDeviceModel === deviceType && (state.phoneModelLoaded || state.phoneModelLoading)) return;
 
     state.phoneModelLoading = true;
     state.currentDeviceModel = deviceType;
@@ -548,6 +549,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     state.modelCache[deviceType] = { loaded: false, loading: true, promise };
     return promise;
   }, [buildRenderableModel]);
+
+  /**
+   * Starts loading a cached non-active model without awaiting it.
+   */
+  const preloadPhoneModel = useCallback((deviceType: string) => {
+    void loadCachedPhoneModel(deviceType);
+  }, [loadCachedPhoneModel]);
 
   /**
    * Renders a specific screenshot's 3D device into a supplied 2D canvas.
@@ -814,5 +822,5 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     };
   }, []);
 
-  return { initScene, loadPhoneModel, updateScreenTexture, setRotation, setFrameColor, setupDragRotate, stateRef };
+  return { initScene, loadPhoneModel, preloadPhoneModel, updateScreenTexture, setRotation, setFrameColor, setupDragRotate, stateRef };
 }

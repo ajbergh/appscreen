@@ -12,7 +12,7 @@ import JSZip from 'jszip';
 import { useAppStore } from '../../stores/appStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { getCanvasDimensions } from '../../canvas/renderer';
-import { renderScreenshotToCanvas } from '../../hooks/useCanvas';
+import { getScreenshotImage, renderScreenshotToCanvas } from '../../hooks/useCanvas';
 import type { Screenshot } from '../../types';
 import { AboutModal, SettingsModal, LanguagesModal } from '../Modals/Modals';
 import { ExportProgressModal, MagicalTitlesModal, ScreenshotTranslationsModal, TranslateAllModal } from '../Modals/AllModals';
@@ -25,6 +25,16 @@ const LANGUAGE_FLAGS: Record<string, string> = {
   'no': '🇳🇴', 'fi': '🇫🇮', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦',
 };
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  'en': 'English', 'en-gb': 'English (UK)', 'de': 'German', 'fr': 'French', 'es': 'Spanish',
+  'it': 'Italian', 'pt': 'Portuguese', 'pt-br': 'Portuguese (Brazil)', 'nl': 'Dutch', 'ru': 'Russian',
+  'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'zh-tw': 'Chinese (Taiwan)', 'ar': 'Arabic',
+  'hi': 'Hindi', 'tr': 'Turkish', 'pl': 'Polish', 'sv': 'Swedish', 'da': 'Danish',
+  'no': 'Norwegian', 'fi': 'Finnish', 'th': 'Thai', 'vi': 'Vietnamese', 'id': 'Indonesian', 'uk': 'Ukrainian',
+};
+
+const LANGUAGE_ORDER = Object.keys(LANGUAGE_NAMES);
+
 /**
  * Renders project controls, screenshot list management, language menus, export
  * actions, and modal entry points for the editor.
@@ -32,6 +42,8 @@ const LANGUAGE_FLAGS: Record<string, string> = {
 export function LeftSidebar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+  const magicalTooltipShownRef = useRef(false);
+  const magicalTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalMode, setProjectModalMode] = useState<'new' | 'rename'>('new');
@@ -43,10 +55,13 @@ export function LeftSidebar() {
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [translateAllOpen, setTranslateAllOpen] = useState(false);
   const [magicalTitlesOpen, setMagicalTitlesOpen] = useState(false);
+  const [magicalTooltipVisible, setMagicalTooltipVisible] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<'before' | 'after' | null>(null);
   const [contextMenuIndex, setContextMenuIndex] = useState<number | null>(null);
-  const [transferSource, setTransferSource] = useState<number | null>(null);
+  const [transferTarget, setTransferTarget] = useState<number | null>(null);
+  const [dropActive, setDropActive] = useState(false);
   const [exportLangDialogOpen, setExportLangDialogOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState({ isOpen: false, progress: 0, status: '', detail: '' });
   const [translationsModalOpen, setTranslationsModalOpen] = useState(false);
@@ -75,6 +90,19 @@ export function LeftSidebar() {
   const projectLanguages = useAppStore((s) => s.projectLanguages);
   const setCurrentLanguage = useAppStore((s) => s.setCurrentLanguage);
   const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+  const orderedProjectLanguages = [...projectLanguages].sort((a, b) => {
+    const ai = LANGUAGE_ORDER.indexOf(a);
+    const bi = LANGUAGE_ORDER.indexOf(b);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+  const getLanguageLabel = (lang: string) => `${LANGUAGE_FLAGS[lang] || '🌐'} ${LANGUAGE_NAMES[lang] || lang.toUpperCase()}`;
+
+  /**
+   * Returns true only when a screenshot has an explicit localized image for the
+   * language. This mirrors the legacy thumbnail completion indicator.
+   */
+  const hasLocalizedScreenshotImage = (screenshot: Screenshot, lang: string) =>
+    !!screenshot.localizedImages?.[lang]?.image;
 
   // Close the topmost lightweight menu/dialog when Escape is pressed.
   useEffect(() => {
@@ -85,17 +113,49 @@ export function LeftSidebar() {
         if (languageMenuOpen) { setLanguageMenuOpen(false); return; }
         if (projectMenuOpen) { setProjectMenuOpen(false); return; }
         if (contextMenuIndex !== null) { setContextMenuIndex(null); return; }
+        if (transferTarget !== null) { setTransferTarget(null); return; }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndex, screenshots, projectModalOpen, exportLangDialogOpen, languageMenuOpen, projectMenuOpen, contextMenuIndex]);
+  }, [selectedIndex, screenshots, projectModalOpen, exportLangDialogOpen, languageMenuOpen, projectMenuOpen, contextMenuIndex, transferTarget]);
+
+  useEffect(() => () => {
+    if (magicalTooltipTimerRef.current) clearTimeout(magicalTooltipTimerRef.current);
+  }, []);
+
+  /**
+   * Shows the first-screenshot Magical Titles hint when an AI key exists.
+   */
+  const maybeShowMagicalTitlesTooltip = (previousCount: number) => {
+    if (previousCount !== 0 || useAppStore.getState().screenshots.length === 0) return;
+    if (magicalTooltipShownRef.current || localStorage.getItem('magicalTitlesTooltipDismissed')) return;
+    const provider = localStorage.getItem('aiProvider') || 'anthropic';
+    const storageKey = provider === 'openai' ? 'openaiApiKey' : provider === 'google' ? 'googleApiKey' : 'claudeApiKey';
+    if (!localStorage.getItem(storageKey)) return;
+    magicalTooltipShownRef.current = true;
+    setMagicalTooltipVisible(true);
+    if (magicalTooltipTimerRef.current) clearTimeout(magicalTooltipTimerRef.current);
+    magicalTooltipTimerRef.current = setTimeout(() => dismissMagicalTitlesTooltip(), 8000);
+  };
+
+  /**
+   * Dismisses and remembers the Magical Titles hint.
+   */
+  const dismissMagicalTitlesTooltip = () => {
+    setMagicalTooltipVisible(false);
+    localStorage.setItem('magicalTitlesTooltipDismissed', 'true');
+    if (magicalTooltipTimerRef.current) {
+      clearTimeout(magicalTooltipTimerRef.current);
+      magicalTooltipTimerRef.current = null;
+    }
+  };
 
   /**
    * Detects a project language from a filename suffix such as
    * `screenshot_de.png` or `screenshot_pt-br_01.png`.
    */
-  const detectLanguageFromFilename = (filename: string): string | null => {
+  const detectLanguageFromFilename = (filename: string): string => {
     const lower = filename.toLowerCase();
     const langs = Object.keys(LANGUAGE_FLAGS).sort((a, b) => b.length - a.length);
     for (const lang of langs) {
@@ -103,7 +163,7 @@ export function LeftSidebar() {
       const pattern = new RegExp(`[_-]${escaped}(?:[_-][a-z]{2})?\\.`, 'i');
       if (pattern.test(lower)) return lang;
     }
-    return null;
+    return 'en';
   };
 
   /**
@@ -122,15 +182,14 @@ export function LeftSidebar() {
   };
 
   /**
-   * Finds an existing screenshot whose original or localized image filename
-   * matches the supplied file after language suffix normalization.
+   * Finds an existing screenshot whose localized image filename matches the
+   * supplied file after language suffix normalization.
    */
   const findScreenshotByBaseFilename = (filename: string): number => {
     const baseName = getBaseFilename(filename);
     const currentScreenshots = useAppStore.getState().screenshots;
     for (let i = 0; i < currentScreenshots.length; i++) {
       const screenshot = currentScreenshots[i];
-      if (getBaseFilename(screenshot.name || '') === baseName) return i;
       for (const localized of Object.values(screenshot.localizedImages || {})) {
         if (localized?.name && getBaseFilename(localized.name) === baseName) return i;
       }
@@ -198,12 +257,13 @@ export function LeftSidebar() {
   const showAppConfirm = (message: string, confirmText = 'Confirm'): Promise<boolean> => new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay visible';
+    const confirmClass = confirmText.toLowerCase().includes('delete') ? 'danger' : 'primary';
     overlay.innerHTML = `
       <div class="modal">
         <p class="modal-message" style="margin: 16px 0;">${message}</p>
         <div class="modal-buttons">
           <button class="modal-btn secondary" data-confirm="false">Cancel</button>
-          <button class="modal-btn primary" data-confirm="true">${confirmText}</button>
+          <button class="modal-btn ${confirmClass}" data-confirm="true">${confirmText}</button>
         </div>
       </div>
     `;
@@ -224,82 +284,50 @@ export function LeftSidebar() {
   });
 
   /**
-   * Imports selected browser files, detects language suffixes, attaches matching
-   * localized images to existing screenshots, or creates new screenshots from
-   * the current default style.
+   * Detects the legacy display device label from image aspect ratio.
    */
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach((file) => {
-      const detectedLang = detectLanguageFromFilename(file.name) || currentLanguage || 'en';
-
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.onload = async () => {
-          const src = ev.target?.result as string;
-          const existingIdx = findScreenshotByBaseFilename(file.name);
-
-          if (existingIdx >= 0) {
-            // Add as localized image to existing screenshot
-            const existing = useAppStore.getState().screenshots[existingIdx];
-            if (existing.localizedImages?.[detectedLang]?.image) {
-              const choice = await showDuplicateUploadDialog(`${file.name} matches screenshot ${existingIdx + 1} and already has ${detectedLang.toUpperCase()} image data.`);
-              if (choice === 'skip') return;
-              if (choice === 'create') {
-                addScreenshot(createDefaultScreenshot(file.name, img, { [detectedLang]: { image: img, src, name: file.name } }));
-                saveState();
-                return;
-              }
-            }
-            const newLocalized = { ...existing.localizedImages, [detectedLang]: { image: img, src, name: file.name } };
-            useAppStore.getState().updateScreenshot(existingIdx, { localizedImages: newLocalized });
-            // Add language to project if not present
-            const langs = useAppStore.getState().projectLanguages;
-            if (!langs.includes(detectedLang)) {
-              useAppStore.getState().setState({ projectLanguages: [...langs, detectedLang] });
-            }
-          } else {
-            // Create new screenshot using current defaults
-            const localizedImages: Record<string, { image: HTMLImageElement; src: string; name: string }> = {
-              [detectedLang]: { image: img, src, name: file.name }
-            };
-            addScreenshot(createDefaultScreenshot(file.name, img, localizedImages));
-            const langs = useAppStore.getState().projectLanguages;
-            if (!langs.includes(detectedLang)) {
-              useAppStore.getState().setState({ projectLanguages: [...langs, detectedLang] });
-            }
-          }
-          saveState();
-        };
-        img.src = ev.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const detectDeviceType = (img: HTMLImageElement | null) => {
+    if (!img) return outputDevice;
+    return img.width / img.height > 0.6 ? 'iPad' : 'iPhone';
   };
 
   /**
-   * Imports an already-read image data URL. The Tauri file picker uses this path
-   * because native file bytes must be converted before HTMLImageElement loading.
+   * Reads a File object as a data URL.
    */
-  const processImageDataUrl = async (name: string, src: string) => {
-    const detectedLang = detectLanguageFromFilename(name) || currentLanguage || 'en';
+  const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => resolve(ev.target?.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  /**
+   * Hydrates an HTMLImageElement from a data URL.
+   */
+  const loadImageFromDataUrl = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
-    await new Promise<void>((resolve) => {
-      img.onload = () => resolve();
-      img.onerror = () => resolve();
-      img.src = src;
-    });
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = src;
+  });
+
+  /**
+   * Imports one image data URL using the legacy localized-image matching flow.
+   */
+  const importImageDataUrl = async (name: string, src: string) => {
+    const detectedLang = detectLanguageFromFilename(name);
+    const img = await loadImageFromDataUrl(src);
+    const deviceType = detectDeviceType(img);
     const existingIdx = findScreenshotByBaseFilename(name);
+
     if (existingIdx >= 0) {
       const existing = useAppStore.getState().screenshots[existingIdx];
       if (existing.localizedImages?.[detectedLang]?.image) {
         const choice = await showDuplicateUploadDialog(`${name} matches screenshot ${existingIdx + 1} and already has ${detectedLang.toUpperCase()} image data.`);
         if (choice === 'skip') return;
         if (choice === 'create') {
-          addScreenshot(createDefaultScreenshot(name, img, { [detectedLang]: { image: img, src, name } }));
+          addScreenshot(createDefaultScreenshot(name, img, { [detectedLang]: { image: img, src, name } }, deviceType));
+          useAppStore.getState().addProjectLanguage(detectedLang);
           return;
         }
       }
@@ -307,10 +335,104 @@ export function LeftSidebar() {
         localizedImages: { ...existing.localizedImages, [detectedLang]: { image: img, src, name } },
       });
     } else {
-      addScreenshot(createDefaultScreenshot(name, img, { [detectedLang]: { image: img, src, name } }));
+      addScreenshot(createDefaultScreenshot(name, img, { [detectedLang]: { image: img, src, name } }, deviceType));
     }
-    const langs = useAppStore.getState().projectLanguages;
-    if (!langs.includes(detectedLang)) useAppStore.getState().setState({ projectLanguages: [...langs, detectedLang] });
+    useAppStore.getState().addProjectLanguage(detectedLang);
+  };
+
+  /**
+   * Processes image files sequentially to keep duplicate dialogs and selection
+   * updates deterministic.
+   */
+  const processFilesSequentially = async (files: File[]) => {
+    const previousCount = useAppStore.getState().screenshots.length;
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      const src = await readFileAsDataUrl(file);
+      await importImageDataUrl(file.name, src);
+      saveState();
+    }
+    maybeShowMagicalTitlesTooltip(previousCount);
+  };
+
+  /**
+   * Imports selected browser files, detects language suffixes, attaches matching
+   * localized images to existing screenshots, or creates new screenshots from
+   * the current default style.
+   */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    await processFilesSequentially(files);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  /**
+   * Replaces one screenshot image for the current language while preserving its
+   * settings, text, elements, and popouts.
+   */
+  const handleReplaceScreenshot = (index: number) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      try {
+        const src = await readFileAsDataUrl(file);
+        const img = await loadImageFromDataUrl(src);
+        const screenshot = useAppStore.getState().screenshots[index];
+        if (!screenshot) return;
+        useAppStore.getState().updateScreenshot(index, {
+          image: img,
+          localizedImages: {
+            ...screenshot.localizedImages,
+            [currentLanguage]: { image: img, src, name: file.name },
+          },
+        });
+        saveState();
+      } catch (err) {
+        console.error('Failed to replace screenshot:', err);
+        await showAppAlert('Could not replace the screenshot image.');
+      }
+    }, { once: true });
+
+    input.click();
+  };
+
+  /**
+   * Highlights the sidebar as a drop target for image imports.
+   */
+  const handleSidebarDragOver = (e: React.DragEvent) => {
+    if (transferTarget !== null) return;
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDropActive(true);
+  };
+
+  /**
+   * Clears the sidebar drop target highlight.
+   */
+  const handleSidebarDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setDropActive(false);
+    }
+  };
+
+  /**
+   * Imports dropped image files through the same sequential upload path used by
+   * the hidden file input.
+   */
+  const handleSidebarDrop = async (e: React.DragEvent) => {
+    if (transferTarget !== null) return;
+    e.preventDefault();
+    setDropActive(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    await processFilesSequentially(files);
   };
 
   /**
@@ -333,7 +455,7 @@ export function LeftSidebar() {
           reader.onloadend = () => resolve(reader.result as string);
           reader.readAsDataURL(new Blob([bytes]));
         });
-        await processImageDataUrl(filePath.split(/[\\/]/).pop() || 'screenshot.png', dataUrl);
+        await importImageDataUrl(filePath.split(/[\\/]/).pop() || 'screenshot.png', dataUrl);
       }
       saveState();
     } catch (err) {
@@ -346,17 +468,22 @@ export function LeftSidebar() {
    * overlay collections and inheriting image-span backgrounds from the active
    * screenshot to preserve legacy behavior.
    */
-  const createDefaultScreenshot = (name: string, img: HTMLImageElement | null, localizedImages: Record<string, { image: HTMLImageElement; src: string; name: string }> = {}): Screenshot => {
+  const createDefaultScreenshot = (
+    name: string,
+    img: HTMLImageElement | null,
+    localizedImages: Record<string, { image: HTMLImageElement; src: string; name: string }> = {},
+    deviceType = detectDeviceType(img)
+  ): Screenshot => {
     const store = useAppStore.getState();
     const { defaults } = store;
     // Inherit imageSpan background from active screenshot if it uses span (matches original)
     const activeBackground = store.getCurrentScreenshot()?.background;
     const bgDefaults = activeBackground?.imageSpan ? activeBackground : defaults.background;
     return {
-      image: img, name, deviceType: outputDevice, localizedImages,
+      image: img, name, deviceType, localizedImages,
       background: { ...bgDefaults, image: bgDefaults.image || null },
       screenshot: { ...defaults.screenshot },
-      text: { ...defaults.text, headlines: { en: '' }, subheadlines: { en: '' } },
+      text: JSON.parse(JSON.stringify(defaults.text)),
       elements: (defaults.elements || []).map((el) => ({ ...el, id: crypto.randomUUID(), image: el.image || null, texts: { ...(el.texts || {}) } })),
       popouts: (defaults.popouts || []).map((p) => ({ ...p, id: crypto.randomUUID(), shadow: { ...p.shadow }, border: { ...p.border } })),
       overrides: {},
@@ -367,8 +494,10 @@ export function LeftSidebar() {
    * Adds a blank screenshot slot using the current default style.
    */
   const handleAddBlank = () => {
+    const previousCount = useAppStore.getState().screenshots.length;
     addScreenshot(createDefaultScreenshot('Blank Screen', null));
     saveState();
+    maybeShowMagicalTitlesTooltip(previousCount);
   };
 
   /**
@@ -411,7 +540,7 @@ export function LeftSidebar() {
     if (screenshots.length === 0) return;
     const zip = new JSZip();
     const dims = getCanvasDimensions(outputDevice, customWidth, customHeight);
-    setExportProgress({ isOpen: true, progress: 0, status: 'Exporting...', detail: `Preparing ${currentLanguage.toUpperCase()} screenshots` });
+    setExportProgress({ isOpen: true, progress: 0, status: 'Exporting...', detail: `Preparing ${getLanguageLabel(currentLanguage)} screenshots` });
     for (let i = 0; i < screenshots.length; i++) {
       const screenshot = screenshots[i];
       const canvas = document.createElement('canvas');
@@ -423,9 +552,9 @@ export function LeftSidebar() {
     }
     setExportProgress({ isOpen: true, progress: 95, status: 'Generating ZIP...', detail: '' });
     const blob = await zip.generateAsync({ type: 'blob' });
-    setExportProgress({ isOpen: true, progress: 100, status: 'Complete', detail: '' });
+    setExportProgress({ isOpen: true, progress: 100, status: 'Complete!', detail: '' });
     downloadBlob(blob, `screenshots_${outputDevice}_${currentLanguage}.zip`);
-    setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 500);
+    setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 1500);
   };
 
   /**
@@ -448,20 +577,20 @@ export function LeftSidebar() {
       for (let i = 0; i < screenshots.length; i++) {
         const screenshot = screenshots[i];
         const canvas = document.createElement('canvas');
-        await renderScreenshotToCanvas(canvas, screenshot, dims, lang, i, screenshots, projectLanguages);
+        await renderScreenshotToCanvas(canvas, screenshot, dims, lang, i, screenshots, projectLanguages, true);
         const dataUrl = canvas.toDataURL('image/png');
         langFolder.file(`screenshot-${i + 1}.png`, dataUrl.split(',')[1], { base64: true });
         completedItems++;
-        setExportProgress({ isOpen: true, progress: Math.round((completedItems / totalItems) * 90), status: 'Exporting...', detail: `${lang.toUpperCase()}: Screenshot ${i + 1} of ${screenshots.length}` });
+        setExportProgress({ isOpen: true, progress: Math.round((completedItems / totalItems) * 90), status: 'Exporting...', detail: `${getLanguageLabel(lang)}: Screenshot ${i + 1} of ${screenshots.length}` });
         await yieldToBrowser();
       }
     }
 
     setExportProgress({ isOpen: true, progress: 95, status: 'Generating ZIP...', detail: '' });
     const blob = await zip.generateAsync({ type: 'blob' });
-    setExportProgress({ isOpen: true, progress: 100, status: 'Complete', detail: '' });
+    setExportProgress({ isOpen: true, progress: 100, status: 'Complete!', detail: '' });
     downloadBlob(blob, `screenshots_${outputDevice}_all-languages.zip`);
-    setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 500);
+    setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 1500);
   };
 
   /** Opens the project dialog in create mode. */
@@ -471,8 +600,11 @@ export function LeftSidebar() {
   const handleRenameProject = () => { setProjectModalMode('rename'); setProjectName(currentProject?.name || ''); setProjectModalOpen(true); };
 
   /**
-   * Creates, duplicates, or renames a project and keeps the app store aligned
-   * with the project store's selected project.
+   * Creates, duplicates, or renames a project.
+   *
+   * Project creation itself saves the outgoing project, switches metadata, and
+   * resets the app store. Duplication then copies the selected source project's
+   * saved state into the newly-created project and hydrates it into memory.
    */
   const handleProjectModalConfirm = async () => {
     if (!projectName.trim()) return;
@@ -489,7 +621,6 @@ export function LeftSidebar() {
         }
       } else {
         await createProject(projectName.trim());
-        useAppStore.getState().resetState();
       }
     } else {
       renameProject(currentProjectId, projectName.trim());
@@ -498,18 +629,19 @@ export function LeftSidebar() {
     setDuplicateFromId('');
   };
   /**
-   * Deletes the current project after confirmation and hydrates the next
-   * selected project into the app store.
+   * Deletes the current project after confirmation.
+   *
+   * The project store performs the save/delete/switch/hydrate sequence so every
+   * delete path uses the same state transition.
    */
   const handleDeleteProject = async () => {
-    if (projects.length <= 1) return;
+    if (projects.length <= 1) {
+      await showAppAlert('At least one project must remain.');
+      return;
+    }
     const confirmed = await showAppConfirm(`Delete project "${currentProject?.name || 'Current Project'}"?`, 'Delete');
     if (!confirmed) return;
     await deleteProject(currentProjectId);
-    const nextId = useProjectStore.getState().currentProjectId;
-    const nextState = await useProjectStore.getState().loadProjectState(nextId);
-    useAppStore.getState().resetState();
-    if (nextState) useAppStore.getState().setState(nextState as any);
   };
 
   /**
@@ -525,32 +657,43 @@ export function LeftSidebar() {
   /**
    * Writes imported backup records back into an IndexedDB object store.
    */
-  const writeStore = (db: IDBDatabase, storeName: string, records: any[]) => new Promise<void>((resolve) => {
+  const writeStore = (db: IDBDatabase, storeName: string, records: any[]) => new Promise<void>((resolve, reject) => {
     const tx = db.transaction([storeName], 'readwrite');
     const store = tx.objectStore(storeName);
     records.forEach((record) => store.put(record));
     tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error(`Failed to write ${storeName}`));
   });
 
   /**
    * Exports all AppScreen IndexedDB object stores as a JSON backup file.
    */
   const handleExportProjectBackup = async () => {
-    saveState();
-    const db = useProjectStore.getState().db;
-    if (!db) return;
-    const backup: Record<string, any[]> = {};
-    for (const storeName of Array.from(db.objectStoreNames)) {
-      backup[storeName] = await readStore(db, storeName);
+    try {
+      await saveState();
+      const db = useProjectStore.getState().db;
+      if (!db) {
+        await showAppAlert('Project storage is not available, so a backup cannot be exported.');
+        return;
+      }
+      const backup: Record<string, any[]> = {};
+      for (const storeName of Array.from(db.objectStoreNames)) {
+        backup[storeName] = await readStore(db, storeName);
+      }
+      const date = new Date().toISOString().slice(0, 10);
+      downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), `appscreen-backup-${date}.json`);
+    } catch (err) {
+      console.error('Failed to export backup:', err);
+      await showAppAlert('Backup export failed. Check the console for details and try again.');
     }
-    const date = new Date().toISOString().slice(0, 10);
-    downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), `appscreen-backup-${date}.json`);
   };
 
   /**
-   * Imports a JSON IndexedDB backup, reloads project metadata, and hydrates the
-   * active project into the in-memory editor store.
+   * Imports a JSON IndexedDB backup and reloads the app.
+   *
+   * A full reload mirrors the vanilla backup path and guarantees the project
+   * list, current project id, hydrated images, and in-memory stores all come
+   * from the same freshly imported IndexedDB data.
    */
   const handleImportProjectBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -564,13 +707,11 @@ export function LeftSidebar() {
           await writeStore(db, storeName, backup[storeName]);
         }
       }
-      await useProjectStore.getState().loadProjects();
-      const id = useProjectStore.getState().currentProjectId;
-      const importedState = await useProjectStore.getState().loadProjectState(id);
-      useAppStore.getState().resetState();
-      if (importedState) useAppStore.getState().setState(importedState as any);
+      await showAppAlert('Backup imported. AppScreen will reload to use the restored project data.');
+      window.location.reload();
     } catch (err) {
       console.error('Failed to import backup:', err);
+      await showAppAlert('Backup import failed. Make sure this is a valid AppScreen backup JSON file.');
     } finally {
       if (backupInputRef.current) backupInputRef.current.value = '';
     }
@@ -589,31 +730,46 @@ export function LeftSidebar() {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (dragIndex !== null && dragIndex !== index) {
-      setDragOverIndex(index);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const isAbove = e.clientY < rect.top + rect.height / 2;
+      if (isAbove && index > 0) {
+        setDragOverIndex(index - 1);
+        setDragOverPosition('after');
+      } else {
+        setDragOverIndex(index);
+        setDragOverPosition(isAbove ? 'before' : 'after');
+      }
     }
   };
 
   /** Clears the visual insertion marker when leaving a screenshot item. */
   const handleDragLeave = () => {
     setDragOverIndex(null);
+    setDragOverPosition(null);
   };
 
   /** Applies the screenshot reorder operation and persists the new order. */
   const handleDrop = (e: React.DragEvent, toIndex: number) => {
     e.preventDefault();
     if (dragIndex !== null && dragIndex !== toIndex) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const dropAbove = e.clientY < rect.top + rect.height / 2;
+      let targetIndex = dropAbove ? toIndex : toIndex + 1;
+      if (dragIndex < targetIndex) targetIndex--;
       const reorderScreenshots = useAppStore.getState().reorderScreenshots;
-      reorderScreenshots(dragIndex, toIndex);
+      reorderScreenshots(dragIndex, targetIndex);
       saveState();
     }
     setDragIndex(null);
     setDragOverIndex(null);
+    setDragOverPosition(null);
   };
 
   /** Resets drag state after a completed or cancelled reorder gesture. */
   const handleDragEnd = () => {
     setDragIndex(null);
     setDragOverIndex(null);
+    setDragOverPosition(null);
   };
 
   // Screenshot context-menu handlers.
@@ -633,29 +789,34 @@ export function LeftSidebar() {
   const applyStyleToAll = useAppStore((s) => s.applyStyleToAll);
   const setCurrentScreenshotAsDefault = useAppStore((s) => s.setCurrentScreenshotAsDefault);
 
-  /** Enters style-transfer mode using the selected screenshot as the source. */
-  const handleStartTransfer = (sourceIndex: number) => {
-    setTransferSource(sourceIndex);
+  /** Enters style-transfer mode using the selected screenshot as the destination. */
+  const handleStartTransfer = (targetIndex: number) => {
+    setTransferTarget(targetIndex);
     handleCloseContextMenu();
   };
 
-  /** Applies the source screenshot style to a clicked target screenshot. */
-  const handleApplyTransfer = (targetIndex: number) => {
-    if (transferSource !== null) {
-      transferStyle(transferSource, targetIndex);
+  /** Copies style from the clicked screenshot into the pending destination. */
+  const handleApplyTransfer = (sourceIndex: number) => {
+    if (transferTarget !== null) {
+      transferStyle(sourceIndex, transferTarget);
       saveState();
     }
-    setTransferSource(null);
+    setTransferTarget(null);
     handleCloseContextMenu();
   };
 
   /** Leaves style-transfer mode without mutating screenshots. */
   const handleCancelTransfer = () => {
-    setTransferSource(null);
+    setTransferTarget(null);
   };
 
   /** Copies one screenshot's style settings to every screenshot in the project. */
-  const handleApplyStyleToAll = (sourceIndex: number) => {
+  const handleApplyStyleToAll = async (sourceIndex: number) => {
+    const confirmed = await showAppConfirm(
+      `Apply screenshot ${sourceIndex + 1}'s style to all other screenshots? Text copy and translations will be preserved.`,
+      'Apply Style'
+    );
+    if (!confirmed) return;
     applyStyleToAll(sourceIndex);
     saveState();
     handleCloseContextMenu();
@@ -676,7 +837,12 @@ export function LeftSidebar() {
 
   return (
     <div className="sidebar">
-      <div className="sidebar-content">
+      <div
+        className={`sidebar-content${dropActive ? ' drop-active' : ''}`}
+        onDragOver={handleSidebarDragOver}
+        onDragLeave={handleSidebarDragLeave}
+        onDrop={handleSidebarDrop}
+      >
         <div className="sidebar-header">
           <h2>Project</h2>
           <div className="sidebar-header-buttons">
@@ -687,24 +853,33 @@ export function LeftSidebar() {
               {languageMenuOpen && (
                 <div className="language-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 100 }}>
                   <div className="language-menu-items">
-                    {projectLanguages.map((lang) => (
-                      <button key={lang} className={`language-menu-item${lang === currentLanguage ? ' selected' : ''}`}
+                    {orderedProjectLanguages.map((lang) => (
+                      <button key={lang} className={`language-menu-item${lang === currentLanguage ? ' active' : ''}`}
                         onClick={() => { setCurrentLanguage(lang); setLanguageMenuOpen(false); }}>
-                        {LANGUAGE_FLAGS[lang] || '🌐'} {lang.toUpperCase()}
+                        <span className="flag">{LANGUAGE_FLAGS[lang] || '🌐'}</span>
+                        <span>{LANGUAGE_NAMES[lang] || lang.toUpperCase()}</span>
                       </button>
                     ))}
                   </div>
                   <div className="language-menu-divider" />
                   <button className="language-menu-edit" onClick={() => { setLanguageMenuOpen(false); setTranslateAllOpen(true); }}>
-                    Translate All...
+                    ✨ Translate All...
                   </button>
                   <button className="language-menu-edit" onClick={() => { setLanguageMenuOpen(false); setLanguagesModalOpen(true); }}>
-                    Edit Languages...
+                    🌐 Edit Languages...
                   </button>
                 </div>
               )}
             </div>
-            <button className="settings-btn" title="Magical Titles" onClick={() => setMagicalTitlesOpen(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg></button>
+            <button className="settings-btn" title="Magical Titles" onClick={() => setMagicalTitlesOpen(true)} style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg>
+              {magicalTooltipVisible && (
+                <span className="feature-tooltip">
+                  <span className="feature-tooltip-close" onClick={(e) => { e.stopPropagation(); dismissMagicalTitlesTooltip(); }}>×</span>
+                  ✨ Try AI-generated titles!
+                </span>
+              )}
+            </button>
             <button className="settings-btn" title="About" onClick={() => setAboutModalOpen(true)}><img src="img/info.svg" width="18" height="18" alt="About" /></button>
             <button className="settings-btn" title="Settings" onClick={() => setSettingsModalOpen(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
           </div>
@@ -725,12 +900,7 @@ export function LeftSidebar() {
                   <div key={p.id} className={`project-option${p.id === currentProjectId ? ' selected' : ''}`}
                     onClick={async () => {
                       if (p.id !== currentProjectId) {
-                        // Save current state, switch, then load new project state
-                        saveState();
                         await switchProject(p.id);
-                        const newState = await useProjectStore.getState().loadProjectState(p.id);
-                        useAppStore.getState().resetState();
-                        if (newState) useAppStore.getState().setState(newState as any);
                       }
                       setProjectMenuOpen(false);
                     }}>
@@ -755,9 +925,9 @@ export function LeftSidebar() {
         <input ref={fileInputRef} type="file" id="file-input" multiple accept="image/*" hidden onChange={handleFileUpload}/>
         <input ref={backupInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportProjectBackup}/>
         {/* Transfer mode hint */}
-        {transferSource !== null && (
+        {transferTarget !== null && (
           <div className="transfer-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--accent-subtle-strong)', border: '1px solid var(--accent)', borderRadius: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--accent)' }}>
-            <span>Click a screenshot to apply style from #{transferSource + 1}</span>
+            <span>Click a screenshot to copy its style into #{transferTarget + 1}</span>
             <button className="transfer-cancel" onClick={handleCancelTransfer} style={{ padding: '4px 10px', border: 'none', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Cancel</button>
           </div>
         )}
@@ -766,15 +936,15 @@ export function LeftSidebar() {
           {screenshots.map((s, i) => (
             <div
               key={i}
-              className={`screenshot-item${i === selectedIndex ? ' selected' : ''}${dragIndex === i ? ' dragging' : ''}${dragOverIndex === i ? ' drag-insert-after' : ''}${transferSource !== null && transferSource !== i ? ' transfer-source-option' : ''}`}
-              draggable
+              className={`screenshot-item${i === selectedIndex ? ' selected' : ''}${dragIndex === i ? ' dragging' : ''}${dragOverIndex === i && dragOverPosition === 'after' ? ' drag-insert-after' : ''}${dragOverIndex === i && dragOverPosition === 'before' ? ' drag-insert-before' : ''}${transferTarget !== null && transferTarget !== i ? ' transfer-source-option' : ''}`}
+              draggable={transferTarget === null}
               onDragStart={(e) => handleDragStart(e, i)}
               onDragOver={(e) => handleDragOver(e, i)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, i)}
               onDragEnd={handleDragEnd}
               onClick={() => {
-                if (transferSource !== null) {
+                if (transferTarget !== null) {
                   handleApplyTransfer(i);
                 } else {
                   selectScreenshot(i);
@@ -787,9 +957,7 @@ export function LeftSidebar() {
               </div>
               <div className="screenshot-thumb">
                 {(() => {
-                  const img = s.localizedImages?.[currentLanguage]?.image
-                    || s.localizedImages?.['en']?.image
-                    || s.image;
+                  const img = getScreenshotImage(s, currentLanguage, projectLanguages);
                   return img ? <img src={img.src} alt={s.name}/> : <div className="screenshot-thumb-blank">Blank</div>;
                 })()}
               </div>
@@ -797,10 +965,18 @@ export function LeftSidebar() {
                 <span className="screenshot-name">{s.name}</span>
                 <span className="screenshot-device" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginTop: '1px' }}>
                   {s.deviceType || outputDevice}
-                  {' '}
-                  {Object.keys(s.localizedImages || {}).map(lang => (
-                    <span key={lang} title={lang} style={{ fontSize: '11px' }}>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
-                  ))}
+                  {projectLanguages.length > 1 && (
+                    <span className="screenshot-lang-flags">
+                      {Object.keys(s.localizedImages || {})
+                        .filter((lang) => hasLocalizedScreenshotImage(s, lang))
+                        .map(lang => (
+                          <span key={lang} title={LANGUAGE_NAMES[lang] || lang.toUpperCase()}>{LANGUAGE_FLAGS[lang] || '🌐'}</span>
+                        ))}
+                      {projectLanguages.every((lang) => hasLocalizedScreenshotImage(s, lang)) && (
+                        <span className="screenshot-complete" title="All project languages have images">✓</span>
+                      )}
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="screenshot-actions">
@@ -819,7 +995,7 @@ export function LeftSidebar() {
               {contextMenuIndex === i && (
                 <div className="screenshot-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px', minWidth: '220px', zIndex: 100, boxShadow: '0 4px 12px var(--shadow-color)', display: 'block' }}>
                   <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleStartTransfer(i); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    📋 Copy Style to Another Screenshot
+                    📋 Copy Style from Another Screenshot
                   </button>
                   <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleApplyStyleToAll(i); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
                     📋 Apply Style to All Screenshots
@@ -832,6 +1008,9 @@ export function LeftSidebar() {
                       🌐 Screenshot Translations
                     </button>
                   )}
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleReplaceScreenshot(i); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
+                    🖼️ Replace Screenshot...
+                  </button>
                   <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); duplicateScreenshot(i); saveState(); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
                     📄 Duplicate
                   </button>
@@ -850,11 +1029,13 @@ export function LeftSidebar() {
         )}
       </div>
 
-      <div className="sidebar-add-buttons">
-        <button className="add-btn" onClick={() => fileInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 5v14M5 12h14"/></svg>Add Screenshots</button>
-        {isTauri && <button className="add-btn" onClick={handleTauriImport}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 5v14M5 12h14"/></svg>Import Files</button>}
-        <button className="add-btn add-blank-btn" onClick={handleAddBlank}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Blank Screen</button>
-      </div>
+      {transferTarget === null && (
+        <div className="sidebar-add-buttons">
+          <button className="add-btn" onClick={() => fileInputRef.current?.click()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 5v14M5 12h14"/></svg>Add Screenshots</button>
+          {isTauri && <button className="add-btn" onClick={handleTauriImport}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 5v14M5 12h14"/></svg>Import Files</button>}
+          <button className="add-btn add-blank-btn" onClick={handleAddBlank}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Blank Screen</button>
+        </div>
+      )}
 
       <div className="sidebar-footer">
         <div className="export-output-section">
@@ -886,7 +1067,7 @@ export function LeftSidebar() {
                 <option value="custom">Custom ({customWidth} × {customHeight})</option>
               </select>
             </div>
-            <button className="export-btn secondary" title="Export current" onClick={handleExportCurrent}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>
+            <button className="export-btn secondary" title="Export current" disabled={screenshots.length === 0} onClick={handleExportCurrent}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>
           </div>
           {/* Custom size inputs */}
           {outputDevice === 'custom' && (
@@ -901,7 +1082,7 @@ export function LeftSidebar() {
                 style={{ flex: 1, padding: '4px 6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '12px' }} />
             </div>
           )}
-          <button className="export-btn export-all-btn" title="Export all as ZIP" onClick={handleExportAllClick}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export All</button>
+          <button className="export-btn export-all-btn" title="Export all as ZIP" disabled={screenshots.length === 0} onClick={handleExportAllClick}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export All</button>
         </div>
       </div>
 
@@ -910,17 +1091,24 @@ export function LeftSidebar() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{projectModalMode === 'new' ? 'New Project' : 'Rename Project'}</h3>
             <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="Project name" className="modal-input" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleProjectModalConfirm(); }}/>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Duplicate from existing project (optional)</label>
-              <select
-                onChange={(e) => setDuplicateFromId(e.target.value)}
-                value={duplicateFromId}
-                style={{ width: '100%', padding: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
-              >
-                <option value="">— New empty project —</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
+            {projectModalMode === 'new' && (
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Duplicate from existing project (optional)</label>
+                <select
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    setDuplicateFromId(selectedId);
+                    const selectedProject = projects.find((p) => p.id === selectedId);
+                    setProjectName(selectedProject ? `${selectedProject.name} (Copy)` : '');
+                  }}
+                  value={duplicateFromId}
+                  style={{ width: '100%', padding: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                >
+                  <option value="">None (empty project)</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="modal-buttons">
               <button className="modal-btn secondary" onClick={() => setProjectModalOpen(false)}>Cancel</button>
               <button className="modal-btn primary" onClick={handleProjectModalConfirm}>{projectModalMode === 'new' ? 'Create' : 'Rename'}</button>
@@ -945,7 +1133,7 @@ export function LeftSidebar() {
             <div className="export-options" style={{ display: 'flex', flexDirection: 'column', gap: '10px', margin: '20px 0' }}>
               <button className="export-option" onClick={() => { setExportLangDialogOpen(false); handleExportAll(); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', padding: '16px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                 <span className="export-option-title" style={{ fontSize: '15px', fontWeight: 500, color: 'var(--text-primary)' }}>Current Language Only</span>
-                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Export screenshots in the current language ({currentLanguage})</span>
+                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Export screenshots in the current language ({getLanguageLabel(currentLanguage)})</span>
               </button>
               <button className="export-option" onClick={() => { setExportLangDialogOpen(false); handleExportAllAllLanguages(); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', padding: '16px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                 <span className="export-option-title" style={{ fontSize: '15px', fontWeight: 500, color: 'var(--text-primary)' }}>All Languages</span>

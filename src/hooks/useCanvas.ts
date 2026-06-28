@@ -18,6 +18,42 @@ let threeRenderer: {
   isReady: boolean;
 } | null = null;
 
+let activeSnapGuides: { x: number | null; y: number | null } = { x: null, y: null };
+
+/**
+ * Updates the snap-guide overlay drawn by the live preview render loop.
+ */
+export function setActiveSnapGuides(guides: { x: number | null; y: number | null }) {
+  activeSnapGuides = guides;
+}
+
+/**
+ * Draws center alignment guides after the normal canvas render completes.
+ */
+function drawActiveSnapGuides(ctx: CanvasRenderingContext2D, dims: DeviceDimensions) {
+  if (activeSnapGuides.x === null && activeSnapGuides.y === null) return;
+  ctx.save();
+  const previewScale = dims.width / 400;
+  ctx.strokeStyle = 'rgba(120, 170, 255, 0.45)';
+  ctx.lineWidth = Math.max(1, 1.5 * previewScale);
+  ctx.setLineDash([12 * previewScale, 8 * previewScale]);
+  if (activeSnapGuides.x !== null) {
+    const x = dims.width * (activeSnapGuides.x / 100);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, dims.height);
+    ctx.stroke();
+  }
+  if (activeSnapGuides.y !== null) {
+    const y = dims.height * (activeSnapGuides.y / 100);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(dims.width, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /**
  * Registers the active Three.js renderer adapter.
  *
@@ -27,6 +63,18 @@ let threeRenderer: {
  */
 export function setThreeRenderer(renderer: typeof threeRenderer) {
   threeRenderer = renderer;
+}
+
+/**
+ * Waits for the Three.js adapter to finish its initial model load.
+ */
+async function waitForThreeRendererReady(timeoutMs = 5000): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (threeRenderer?.isReady) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !!threeRenderer?.isReady;
 }
 
 /**
@@ -75,6 +123,7 @@ export function useCanvas() {
     if (!screenshot) return;
 
     await renderScreenshotToCanvas(canvas, screenshot, dims, currentLanguage, selectedIndex, screenshots, projectLanguages);
+    drawActiveSnapGuides(ctx, dims);
   }, [screenshots, selectedIndex, outputDevice, customWidth, customHeight, currentLanguage, projectLanguages]);
 
   // Re-render on state changes
@@ -103,13 +152,28 @@ export async function renderScreenshotToCanvas(
   currentLanguage: string,
   screenIndex: number,
   screenshots: Screenshot[],
-  projectLanguages: string[] = []
+  projectLanguages: string[] = [],
+  forceTextLanguage = false
 ): Promise<void> {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
   const image = getScreenshotImage(screenshot, currentLanguage, projectLanguages);
-  const use3D = !!(screenshot.screenshot.use3D && image && threeRenderer?.isReady);
+  const textSettings = forceTextLanguage
+    ? {
+        ...screenshot.text,
+        currentHeadlineLang: currentLanguage,
+        currentSubheadlineLang: currentLanguage,
+        currentLayoutLang: screenshot.text.languageSettings?.[currentLanguage]
+          ? currentLanguage
+          : screenshot.text.currentLayoutLang,
+      }
+    : screenshot.text;
+  const wants3D = !!(screenshot.screenshot.use3D && image);
+  if (wants3D && !threeRenderer?.isReady) {
+    await waitForThreeRendererReady();
+  }
+  const use3D = !!(wants3D && threeRenderer?.isReady);
 
   if (!use3D) {
     renderToCanvas(
@@ -118,7 +182,7 @@ export async function renderScreenshotToCanvas(
       dims,
       screenshot.background,
       screenshot.screenshot,
-      screenshot.text,
+      textSettings,
       screenshot.elements || [],
       screenshot.popouts || [],
       image,
@@ -145,7 +209,7 @@ export async function renderScreenshotToCanvas(
 
   drawElements(ctx, dims, screenshot.elements || [], 'above-screenshot', currentLanguage);
   drawPopouts(ctx, dims, screenshot.popouts || [], image);
-  drawText(ctx, dims, screenshot.text, currentLanguage);
+  drawText(ctx, dims, textSettings, currentLanguage);
   drawElements(ctx, dims, screenshot.elements || [], 'above-text', currentLanguage);
 }
 
@@ -172,9 +236,10 @@ export function getScreenshotImage(
     }
   }
   // Try any available language
-  const langs = Object.keys(screenshot.localizedImages || {});
-  if (langs.length > 0) {
-    return screenshot.localizedImages[langs[0]].image;
+  for (const lang of Object.keys(screenshot.localizedImages || {})) {
+    if (screenshot.localizedImages?.[lang]?.image) {
+      return screenshot.localizedImages[lang].image;
+    }
   }
   // Legacy fallback
   return screenshot.image;
