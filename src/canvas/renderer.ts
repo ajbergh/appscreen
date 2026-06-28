@@ -1,3 +1,13 @@
+/**
+ * Pure Canvas 2D rendering pipeline for previews and exports.
+ *
+ * This module deliberately has no React or Zustand dependency. Callers pass a
+ * fully resolved screenshot, image, language, and output dimensions, then the
+ * renderer draws in the same order used by the vanilla app: background, noise,
+ * behind-elements, screenshot/3D placeholder, above-elements, popouts, text, and
+ * above-text elements. Keeping this module pure lets live preview, side previews,
+ * and PNG/ZIP export share the same compositing behavior.
+ */
 import type {
   BackgroundSettings,
   ScreenshotSettings,
@@ -10,6 +20,13 @@ import { DEVICE_DIMENSIONS } from '../types';
 
 // ===== Helpers =====
 
+/**
+ * Resolves the selected output target into final PNG dimensions.
+ *
+ * `custom` uses user-provided dimensions; known device ids are read from
+ * `DEVICE_DIMENSIONS`; unknown ids fall back to the default iPhone 6.9" size so
+ * rendering remains deterministic if old project data contains an obsolete id.
+ */
 export function getCanvasDimensions(outputDevice: string, customWidth: number, customHeight: number): DeviceDimensions {
   if (outputDevice === 'custom') {
     return { width: customWidth, height: customHeight };
@@ -17,6 +34,12 @@ export function getCanvasDimensions(outputDevice: string, customWidth: number, c
   return DEVICE_DIMENSIONS[outputDevice] || { width: 1290, height: 2796 };
 }
 
+/**
+ * Converts a six-digit hex color into an rgba() string for Canvas styles.
+ *
+ * Invalid or short components fall back to zero instead of throwing, matching
+ * the forgiving behavior expected when loading older saved projects.
+ */
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16) || 0;
   const g = parseInt(hex.slice(3, 5), 16) || 0;
@@ -24,6 +47,12 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/**
+ * Adds a rounded-rectangle path to the current canvas path.
+ *
+ * Canvas `roundRect()` is not used so the renderer works consistently across
+ * older embedded webviews and Tauri environments.
+ */
 function roundRectPath(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number, r: number
@@ -41,6 +70,12 @@ function roundRectPath(
   ctx.closePath();
 }
 
+/**
+ * Wraps text by measured canvas width while preserving explicit newlines.
+ *
+ * The algorithm mirrors the original app: it breaks on spaces, keeps empty
+ * paragraphs as empty lines, and does not hyphenate long words.
+ */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
   const paragraphs = text.split('\n');
@@ -80,6 +115,13 @@ if (typeof Image !== 'undefined') {
 
 // ===== Background Rendering =====
 
+/**
+ * Paints the base background for the output canvas.
+ *
+ * Gradient and solid backgrounds are drawn directly. Image backgrounds delegate
+ * to `drawImageBackground()` because they also own blur, overlay, and panorama
+ * slicing behavior.
+ */
 export function drawBackground(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -111,6 +153,13 @@ export function drawBackground(
   }
 }
 
+/**
+ * Draws an uploaded image background with cover/contain/stretch behavior.
+ *
+ * When `imageSpan` is enabled, the same background image is treated as a
+ * panorama spanning every screenshot in the project; `screenIndex` selects the
+ * visible slice for the current output.
+ */
 function drawImageBackground(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -186,6 +235,13 @@ function drawImageBackground(
 
 // ===== Noise Overlay =====
 
+/**
+ * Applies monochrome pixel noise to the already-rendered background.
+ *
+ * Noise is intentionally destructive on the current canvas buffer, so callers
+ * should invoke it immediately after drawing the background and before drawing
+ * screenshots, text, or decorative elements.
+ */
 export function drawNoise(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -209,6 +265,13 @@ export function drawNoise(
 
 // ===== Screenshot Rendering =====
 
+/**
+ * Draws the optional 2D frame around a screenshot image.
+ *
+ * The frame width and radius scale from the rendered screenshot width so the
+ * visual weight stays stable across different output sizes and screenshot scale
+ * settings.
+ */
 function drawDeviceFrame(
   ctx: CanvasRenderingContext2D,
   x: number, y: number,
@@ -228,6 +291,14 @@ function drawDeviceFrame(
   ctx.globalAlpha = 1;
 }
 
+/**
+ * Draws a 2D screenshot image with scale, position, rotation, perspective,
+ * rounded clipping, optional shadow, and optional frame.
+ *
+ * 3D devices are intentionally not handled here; `renderScreenshotToCanvas()`
+ * in `useCanvas.ts` composes Three.js output between the same surrounding 2D
+ * layers.
+ */
 export function drawScreenshot(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -318,6 +389,12 @@ export function drawScreenshot(
 
 // ===== Text Rendering =====
 
+/**
+ * Resolves text layout values for either global or per-language layout mode.
+ *
+ * The return shape intentionally matches the fields consumed by `drawText()` so
+ * global and localized layout paths can share the same drawing math.
+ */
 function getEffectiveLayout(text: TextSettings, lang: string) {
   if (!text.perLanguageLayout) {
     return {
@@ -341,6 +418,13 @@ function getEffectiveLayout(text: TextSettings, lang: string) {
   };
 }
 
+/**
+ * Draws localized headline/subheadline text for a requested output language.
+ *
+ * Language resolution follows the export fallback chain: requested language,
+ * the currently selected field language, then English. Per-language layout uses
+ * the requested language when available and falls back to the global layout.
+ */
 export function drawText(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -482,6 +566,13 @@ export function drawText(
 
 // ===== Element Frame Rendering =====
 
+/**
+ * Draws the selected decorative frame behind a text element.
+ *
+ * Frame sizing is derived from measured text width/height rather than the
+ * element control width, matching the vanilla behavior for laurel and badge
+ * ornaments.
+ */
 function drawElementFrame(
   ctx: CanvasRenderingContext2D,
   el: ElementSettings,
@@ -529,6 +620,12 @@ function drawElementFrame(
   ctx.restore();
 }
 
+/**
+ * Draws a preloaded laurel SVG as a mirrored text ornament.
+ *
+ * The source SVG is colorized through an offscreen canvas so exported PNGs match
+ * the selected element frame color without mutating the original image object.
+ */
 function drawLaurelSVG(
   ctx: CanvasRenderingContext2D,
   variant: string,
@@ -564,6 +661,9 @@ function drawLaurelSVG(
   ctx.restore();
 }
 
+/**
+ * Draws a five-point star used by laurel-star text frames.
+ */
 function drawStar(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -592,6 +692,13 @@ function drawStar(
 
 // ===== Elements Rendering =====
 
+/**
+ * Draws graphic, icon, emoji, or text elements for a single render layer.
+ *
+ * Elements are stored in canvas-relative percentages. Text elements resolve
+ * localized `texts` values using the requested export language, while graphic
+ * and icon elements draw their already-loaded image objects.
+ */
 export function drawElements(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -674,6 +781,13 @@ export function drawElements(
 
 // ===== Popouts Rendering =====
 
+/**
+ * Draws cropped popout callouts from the active localized screenshot image.
+ *
+ * Crop coordinates are percentages of the source image; placement coordinates
+ * are percentages of the output canvas. Shadow and border are drawn before the
+ * clipped source image so they remain visible outside the rounded crop.
+ */
 export function drawPopouts(
   ctx: CanvasRenderingContext2D,
   dims: DeviceDimensions,
@@ -746,6 +860,14 @@ export function drawPopouts(
 
 // ===== Full Render Pipeline =====
 
+/**
+ * Runs the full 2D render pipeline into a target canvas.
+ *
+ * This function handles all Canvas 2D layers. When `use3D` is true, it leaves
+ * the screenshot/device slot empty so the caller can insert the Three.js render
+ * between behind-elements and above-elements while preserving the same layer
+ * order.
+ */
 export function renderToCanvas(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,

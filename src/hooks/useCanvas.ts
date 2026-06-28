@@ -1,19 +1,40 @@
+/**
+ * React canvas bridge for live preview, side previews, and exports.
+ *
+ * The pure renderer in `canvas/renderer.ts` does not know about React state or
+ * Three.js. This hook connects Zustand state to a preview canvas and exposes
+ * shared helpers that other UI surfaces use to render the exact same screenshot
+ * into arbitrary canvases.
+ */
 import { useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { getCanvasDimensions, renderToCanvas, drawBackground, drawNoise, drawElements, drawPopouts, drawText } from '../canvas/renderer';
 import type { DeviceDimensions, Screenshot } from '../types';
 
-// Global Three.js renderer reference (managed by useThreeJS hook)
+// Global Three.js renderer reference registered by `useThreeJS`.
 let threeRenderer: {
   renderToCanvas: (canvas: HTMLCanvasElement, width: number, height: number, ss?: any) => void;
   renderForScreenshot?: (canvas: HTMLCanvasElement, width: number, height: number, screenshot: Screenshot, image: HTMLImageElement | null) => Promise<boolean>;
   isReady: boolean;
 } | null = null;
 
+/**
+ * Registers the active Three.js renderer adapter.
+ *
+ * `useThreeJS` owns the actual WebGL scene. This setter gives the Canvas render
+ * path a narrow adapter so it can request 3D compositing without importing
+ * Three.js or coupling export code to the preview component.
+ */
 export function setThreeRenderer(renderer: typeof threeRenderer) {
   threeRenderer = renderer;
 }
 
+/**
+ * Returns a ref for the main preview canvas and keeps it rendered from store state.
+ *
+ * The hook uses `requestAnimationFrame` to coalesce rapid Zustand updates from
+ * sliders/text fields into a single canvas paint per frame.
+ */
 export function useCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
@@ -53,14 +74,6 @@ export function useCanvas() {
     const screenshot: Screenshot | undefined = screenshots[selectedIndex];
     if (!screenshot) return;
 
-    const background = screenshot.background;
-    const screenshotSettings = screenshot.screenshot;
-    const textSettings = screenshot.text;
-    const elements = screenshot.elements || [];
-    const popouts = screenshot.popouts || [];
-
-    // Get the localized image
-    const img = getScreenshotImage(screenshot, currentLanguage);
     await renderScreenshotToCanvas(canvas, screenshot, dims, currentLanguage, selectedIndex, screenshots, projectLanguages);
   }, [screenshots, selectedIndex, outputDevice, customWidth, customHeight, currentLanguage, projectLanguages]);
 
@@ -74,6 +87,15 @@ export function useCanvas() {
   return canvasRef;
 }
 
+/**
+ * Renders one screenshot into any supplied canvas using the shared preview/export path.
+ *
+ * This function is the parity contract for current export, batch export,
+ * all-language export, live preview, and side-preview thumbnails. It resolves
+ * localized image data, preserves the same layer order for 2D and 3D outputs,
+ * and falls back to the current Three.js model render if the per-screenshot 3D
+ * render adapter cannot render a cached model.
+ */
 export async function renderScreenshotToCanvas(
   canvas: HTMLCanvasElement,
   screenshot: Screenshot,
@@ -127,6 +149,13 @@ export async function renderScreenshotToCanvas(
   drawElements(ctx, dims, screenshot.elements || [], 'above-text', currentLanguage);
 }
 
+/**
+ * Resolves the best image for a screenshot in the current language context.
+ *
+ * Fallback order mirrors the legacy language utility: requested language,
+ * configured project languages, any localized image, then the legacy root
+ * `image` field for old project data.
+ */
 export function getScreenshotImage(
   screenshot: Screenshot,
   currentLanguage: string,

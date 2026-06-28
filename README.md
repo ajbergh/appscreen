@@ -1,6 +1,6 @@
 # App Store Screenshot Generator
 
-A free, open-source tool for creating beautiful App Store screenshots with customizable backgrounds, text overlays, and 3D device mockups.
+A free, open-source tool for creating App Store and marketing screenshots with customizable backgrounds, localized text overlays, decorative elements, popouts, and 2D/3D device mockups.
 
 
 **[Start using it now. Hosted on GitHub Pages](https://yuzu-hub.github.io/appscreen/)**
@@ -14,7 +14,7 @@ A free, open-source tool for creating beautiful App Store screenshots with custo
 ## Features
 
 ### Output & Export
-- **Multiple Output Sizes**: iPhone 6.9", 6.7", 6.5", 5.5" and iPad 12.9", 11" App Store requirements, plus custom sizes
+- **Multiple Output Sizes**: iPhone, iPad, Android phone/tablet, web social/hero formats, and custom dimensions
 - **Batch Export**: Export all screenshots at once as a ZIP file
 - **Per-Screenshot Settings**: Each screenshot can have its own background, device settings, and text
 
@@ -27,16 +27,16 @@ A free, open-source tool for creating beautiful App Store screenshots with custo
 
 ### Device Mockups
 - **2D Mode**: Position, scale, rotate, and adjust corner radius of screenshots
-- **3D Mode**: Interactive iPhone 15 Pro Max 3D mockup with drag-to-rotate
+- **3D Mode**: Interactive iPhone, iPad, and Samsung mockups with drag-to-rotate and frame color presets
 - **Position Presets**: Centered, bleed, tilt left/right, perspective, and more
 - **Shadow Effects**: Customizable drop shadows with color, blur, opacity, and offset
 - **Border Effects**: Add borders around screenshots with adjustable width and opacity
 
 ### Text Overlays
 - **Headlines & Subheadlines**: Separate controls with enable/disable toggles
-- **Font Picker**: Access to 1500+ Google Fonts with search and preview
+- **Font Picker**: Searchable system, popular, and "All" font lists with a local Google Fonts fallback catalog
 - **Text Styling**: Font weight, italic, underline, strikethrough options
-- **Positioning**: Top, center, or bottom placement with offset control
+- **Positioning**: Top or bottom placement with offset control
 - **Line Height**: Adjustable spacing for multi-line text
 
 ### Multi-Language Support
@@ -54,10 +54,10 @@ A free, open-source tool for creating beautiful App Store screenshots with custo
 - **Screenshot Count**: See screenshot counts in project selector
 
 ### User Interface
-- **Dark Theme**: Easy on the eyes for extended editing sessions
+- **Theme Modes**: Dark, light, and automatic system-theme modes
 - **Side Preview Carousel**: See adjacent screenshots while editing
 - **Drag & Drop**: Reorder screenshots by dragging
-- **Collapsible Sections**: Clean UI with expandable settings panels
+- **Toggle Sections**: Enable/disable controls for optional effects and text areas
 - **Tab Persistence**: Remembers your active tab between sessions
 
 ## Getting Started
@@ -105,22 +105,33 @@ No command line, no technical setup - just chat with Claude!
 
 #### Option 2: Run Locally (Command Line)
 
-Since this app uses IndexedDB for persistence, you need to serve it through a local web server:
+The active app is the React + TypeScript implementation under `src/`, served by Vite:
 
 ```bash
-# Using Python
 cd appscreen
-python3 -m http.server 8000
-
-# Using Node.js
-npx serve .
+npm install
+npm run dev -- --host localhost
 ```
 
-Then open `http://localhost:8000` in your browser.
+Then open the local URL Vite prints, usually `http://localhost:5173/`. If that port is already in use, Vite will choose the next available port.
 
-#### Option 3: VS Code Live Server
+For a production build:
 
-If you have the "Live Server" extension installed in VS Code, right-click `index.html` and select "Open with Live Server".
+```bash
+npm run build
+```
+
+The legacy vanilla files remain in the repository as parity references, but opening `index.html` directly from the filesystem is not the recommended development path for the React app.
+
+#### Option 3: Static Legacy Preview
+
+The original vanilla implementation can still be served with a simple static server for reference work:
+
+```bash
+python3 -m http.server 8000
+```
+
+Use this only when comparing against the legacy implementation. React development should use Vite.
 
 #### Option 4: Docker
 
@@ -168,14 +179,31 @@ Your API key is stored locally in your browser and only sent to the respective A
 
 ## Tech Stack
 
-- Vanilla JavaScript (no frameworks)
-- HTML5 Canvas for 2D rendering
+- React 18 + TypeScript + Vite for the active app
+- Zustand for in-memory app/project state
+- HTML5 Canvas for 2D compositing and PNG export
 - Three.js for 3D device mockups
-- IndexedDB for local storage
-- JSZip for batch export
-- Google Fonts API for font picker
-- Claude/OpenAI/Google APIs for translations
+- IndexedDB for browser-local project storage
+- JSZip for batch ZIP export
+- Local font fallback catalog plus on-demand Google Fonts stylesheet loading
+- Claude/OpenAI/Google APIs for translations and Magical Titles
 - Docker + nginx for containerized deployment
+
+## Architecture
+
+The active React implementation is organized around a shared render path so preview, side previews, and exports stay aligned:
+
+- `src/main.tsx` and `src/App.tsx` initialize theme, IndexedDB, project loading, autosave, and layout.
+- `src/stores/appStore.ts` holds screenshots, selected index, defaults, output dimensions, language state, and style-transfer actions.
+- `src/stores/projectStore.ts` serializes/deserializes projects to IndexedDB and migrates legacy data where possible.
+- `src/canvas/renderer.ts` draws backgrounds, screenshots, text, elements, popouts, and noise into Canvas 2D.
+- `src/hooks/useCanvas.ts` connects store state to the preview and exports `renderScreenshotToCanvas()` for export parity.
+- `src/hooks/useThreeJS.ts` handles Three.js scene/model setup, frame colors, texture swapping, and 3D export rendering.
+- `src/components/Controls/` contains the right-panel editors.
+- `src/components/Modals/` contains settings, languages, translation, Magical Titles, emoji, icon, and progress modals.
+- `REACT_REFACTOR_PARITY_AUDIT.md` tracks parity work against the original vanilla app.
+
+The original `app.js`, `three-renderer.js`, `language-utils.js`, `magical-titles.js`, and `llm.js` files are still useful as reference material when validating parity.
 
 ## Apps Using This Project
 

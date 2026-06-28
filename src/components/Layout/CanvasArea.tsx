@@ -1,9 +1,21 @@
+/**
+ * Center canvas workspace for the screenshot editor.
+ *
+ * CanvasArea coordinates the live 2D canvas hook, optional Three.js device
+ * overlay, adjacent screenshot previews, screenshot navigation gestures, and
+ * direct element dragging. Rendering itself stays in `canvas/renderer.ts` and
+ * Three.js scene management stays in `hooks/useThreeJS.ts`.
+ */
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { getScreenshotImage, renderScreenshotToCanvas, useCanvas } from '../../hooks/useCanvas';
 import { useThreeJS } from '../../hooks/useThreeJS';
 import { getCanvasDimensions } from '../../canvas/renderer';
 
+/**
+ * Renders the preview strip and wires pointer/gesture interactions to the
+ * selected screenshot.
+ */
 export function CanvasArea() {
   const canvasRef = useCanvas();
   const threeContainerRef = useRef<HTMLDivElement>(null);
@@ -17,14 +29,14 @@ export function CanvasArea() {
   const { initScene, loadPhoneModel, setRotation, setFrameColor, updateScreenTexture, setupDragRotate, stateRef } = useThreeJS(threeContainerRef);
   const [showThreeJS, setShowThreeJS] = useState(false);
 
-  // Side preview canvas refs
+  // Side preview canvas refs.
   const leftPreviewRef = useRef<HTMLCanvasElement>(null);
   const farLeftPreviewRef = useRef<HTMLCanvasElement>(null);
   const rightPreviewRef = useRef<HTMLCanvasElement>(null);
   const farRightPreviewRef = useRef<HTMLCanvasElement>(null);
   const previousIndexRef = useRef(0);
 
-  // Side preview container refs (for dynamic positioning)
+  // Side preview container refs used for dynamic positioning around the main canvas.
   const leftContainerRef = useRef<HTMLDivElement>(null);
   const farLeftContainerRef = useRef<HTMLDivElement>(null);
   const rightContainerRef = useRef<HTMLDivElement>(null);
@@ -66,7 +78,7 @@ export function CanvasArea() {
     previousIndexRef.current = selectedIndex;
   }, [selectedIndex]);
 
-  // Initialize Three.js when needed
+  // Initialize or refresh the Three.js model whenever the selected screenshot requests 3D rendering.
   useEffect(() => {
     const currentScreenshot = screenshots[selectedIndex];
     const use3D = currentScreenshot?.screenshot?.use3D;
@@ -93,7 +105,7 @@ export function CanvasArea() {
     }
   }, [screenshots, selectedIndex, currentLanguage, projectLanguages]);
 
-  // Two-finger horizontal swipe to navigate screenshots
+  // Two-finger horizontal swipe to navigate screenshots.
   useEffect(() => {
     const strip = document.querySelector('.preview-strip');
     if (!strip) return;
@@ -120,7 +132,7 @@ export function CanvasArea() {
     return () => strip.removeEventListener('wheel', handleWheel as EventListener);
   }, []);
 
-  // 3D drag-to-rotate
+  // Enable 3D drag-to-rotate or drag-to-move and debounce persistence while dragging.
   useEffect(() => {
     const container = canvasRef.current;
     if (!container || !showThreeJS) return;
@@ -153,7 +165,11 @@ export function CanvasArea() {
     });
   }, [showThreeJS, selectedIndex, screenshots]);
 
-  // Render side previews and update their positions
+  /**
+   * Renders one adjacent screenshot preview and positions its container relative
+   * to the scaled main canvas. Hidden previews keep the DOM stable when there is
+   * no screenshot at the requested offset.
+   */
   const renderSidePreview = useCallback((
     canvas: HTMLCanvasElement | null,
     container: HTMLDivElement | null,
@@ -176,7 +192,7 @@ export function CanvasArea() {
 
     container.classList.remove('hidden');
 
-    // Dynamic positioning matching original updateSidePreviews()
+    // Dynamic positioning matching the original `updateSidePreviews()` layout.
     const gap = 10;
     const sideOffset = mainCanvasWidth / 2 + gap;
     const farSideOffset = sideOffset + mainCanvasWidth + gap;
@@ -225,6 +241,10 @@ export function CanvasArea() {
   const maxPreviewHeight = 700;
   const scale = Math.min(maxPreviewWidth / dims.width, maxPreviewHeight / dims.height);
 
+  /**
+   * Converts viewport pointer coordinates into unscaled export-canvas
+   * coordinates so hit tests are independent of the preview scale.
+   */
   const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return {
@@ -233,6 +253,11 @@ export function CanvasArea() {
     };
   };
 
+  /**
+   * Returns the topmost draggable overlay element under a canvas-space point.
+   * Element bounds are reconstructed from the same percentage-based fields used
+   * by the renderer, including text and graphic aspect-ratio adjustments.
+   */
   const hitTestElement = (x: number, y: number) => {
     const screenshot = screenshots[selectedIndex];
     const elements = screenshot?.elements || [];
@@ -254,6 +279,10 @@ export function CanvasArea() {
     return null;
   };
 
+  /**
+   * Starts a direct element drag from the canvas and switches the inspector to
+   * the Elements tab so numeric controls match the selected interaction.
+   */
   const handleElementPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const screenshot = screenshots[selectedIndex];
     if (!screenshot) return;
@@ -273,6 +302,10 @@ export function CanvasArea() {
     };
   };
 
+  /**
+   * Updates the dragged element's percentage position, snapping to center lines
+   * near 50% and drawing transient alignment guides on top of the live canvas.
+   */
   const handleElementPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = elementDragRef.current;
     const screenshot = screenshots[selectedIndex];
@@ -313,6 +346,9 @@ export function CanvasArea() {
     }
   };
 
+  /**
+   * Finishes a direct canvas drag and persists the final element position.
+   */
   const handleElementPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!elementDragRef.current) return;
     e.currentTarget.releasePointerCapture(e.pointerId);

@@ -1,3 +1,11 @@
+/**
+ * Right-side inspector for screenshot, background, text, element, and popout
+ * controls.
+ *
+ * This file owns only tab selection and panel composition. Individual control
+ * panels read and write editor state directly through the app store so the
+ * sidebar can stay a thin navigation layer.
+ */
 import { useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { BackgroundPanel } from '../Controls/BackgroundPanel';
@@ -14,11 +22,16 @@ const TABS = [
   { id: 'popouts', label: 'Popouts', icon: 'popout' },
 ];
 
+/**
+ * Renders the tab strip and the active control panel. The selected tab is stored
+ * both in Zustand for live UI state and in localStorage so refreshes return to
+ * the same inspector panel.
+ */
 export function RightSidebar() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
-  // Restore active tab from localStorage on mount
+  // Restore active tab from localStorage on mount.
   useEffect(() => {
     const savedTab = localStorage.getItem('activeTab');
     if (savedTab && TABS.find(t => t.id === savedTab)) {
@@ -26,6 +39,9 @@ export function RightSidebar() {
     }
   }, []);
 
+  /**
+   * Persists the active inspector tab and updates the visible panel.
+   */
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     localStorage.setItem('activeTab', tab);
@@ -60,6 +76,10 @@ export function RightSidebar() {
   );
 }
 
+/**
+ * Small inline icon set used by the inspector tabs. These are kept local because
+ * the tab list is fixed and the SVGs avoid an additional icon dependency here.
+ */
 function TabIcon({ type }: { type: string }) {
   switch (type) {
     case 'image':

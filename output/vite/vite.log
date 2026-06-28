@@ -21,3 +21,28 @@ Port 5173 is in use, trying another one...
 [2m11:17:02 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css[22m
 [2m11:20:06 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/RightSidebar.tsx[22m
 [2m11:20:06 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/LeftSidebar.tsx[22m
+[2m11:24:48 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/main.tsx[22m
+[2m11:25:04 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:25:17 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx, /src/components/Layout/LeftSidebar.tsx, /src/components/Controls/BackgroundPanel.tsx[22m
+[2m11:25:43 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx, /src/components/Layout/LeftSidebar.tsx, /src/components/Controls/BackgroundPanel.tsx[22m
+[2m11:26:11 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx, /src/components/Layout/LeftSidebar.tsx, /src/components/Controls/BackgroundPanel.tsx[22m
+[2m11:26:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx, /src/components/Layout/LeftSidebar.tsx[22m
+[2m11:27:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx[22m
+[2m11:27:53 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/components/Layout/CanvasArea.tsx, /src/components/Layout/RightSidebar.tsx, /src/components/Layout/LeftSidebar.tsx, /src/components/Controls/DevicePanel.tsx, /src/components/Controls/BackgroundPanel.tsx, /src/components/Controls/PopoutsPanel.tsx, /src/components/Controls/ElementsPanel.tsx, /src/components/Controls/TextPanel.tsx, /src/components/Modals/Modals.tsx, /src/components/Modals/AllModals.tsx[22m
+[2m11:28:20 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/components/Layout/CanvasArea.tsx, /src/components/Layout/RightSidebar.tsx, /src/components/Layout/LeftSidebar.tsx, /src/components/Controls/DevicePanel.tsx, /src/components/Controls/BackgroundPanel.tsx, /src/components/Controls/PopoutsPanel.tsx, /src/components/Controls/ElementsPanel.tsx, /src/components/Controls/TextPanel.tsx, /src/components/Modals/Modals.tsx, /src/components/Modals/AllModals.tsx[22m
+[2m11:28:53 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Controls/BackgroundPanel.tsx[22m
+[2m11:29:05 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Controls/DevicePanel.tsx[22m
+[2m11:29:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Controls/ElementsPanel.tsx[22m
+[2m11:29:40 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Controls/PopoutsPanel.tsx[22m
+[2m11:29:53 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Controls/TextPanel.tsx[22m
+[2m11:30:15 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/UI/FontPicker.tsx[22m
+[2m11:30:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/UI/FontPicker.tsx[22m
+[2m11:34:24 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/AppLayout.tsx[22m
+[2m11:34:26 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/RightSidebar.tsx[22m
+[2m11:34:28 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/CanvasArea.tsx[22m
+[2m11:34:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Layout/LeftSidebar.tsx[22m
+[2m11:34:32 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Modals/Modals.tsx[22m
+[2m11:34:34 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Modals/AllModals.tsx[22m
+[2m11:34:36 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m11:34:38 AM[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m11:34:38 AM[22m [36m[1m[vite][22m[39m server restarted.

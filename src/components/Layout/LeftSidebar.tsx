@@ -1,3 +1,12 @@
+/**
+ * Left-side project and screenshot management panel.
+ *
+ * This component owns high-level editor workflows that were previously spread
+ * across the vanilla sidebar script: image import, localized image matching,
+ * project creation/switching/backup, screenshot reordering, style transfer, and
+ * export orchestration. Long-lived screenshot data is still managed by the app
+ * and project stores; this panel mostly coordinates user intent and file APIs.
+ */
 import { useRef, useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { useAppStore } from '../../stores/appStore';
@@ -16,6 +25,10 @@ const LANGUAGE_FLAGS: Record<string, string> = {
   'no': '🇳🇴', 'fi': '🇫🇮', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦',
 };
 
+/**
+ * Renders project controls, screenshot list management, language menus, export
+ * actions, and modal entry points for the editor.
+ */
 export function LeftSidebar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +76,7 @@ export function LeftSidebar() {
   const setCurrentLanguage = useAppStore((s) => s.setCurrentLanguage);
   const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
 
-  // Keyboard shortcuts
+  // Close the topmost lightweight menu/dialog when Escape is pressed.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -78,7 +91,10 @@ export function LeftSidebar() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIndex, screenshots, projectModalOpen, exportLangDialogOpen, languageMenuOpen, projectMenuOpen, contextMenuIndex]);
 
-  // Detect language from filename suffix (e.g. screenshot_de.png -> 'de')
+  /**
+   * Detects a project language from a filename suffix such as
+   * `screenshot_de.png` or `screenshot_pt-br_01.png`.
+   */
   const detectLanguageFromFilename = (filename: string): string | null => {
     const lower = filename.toLowerCase();
     const langs = Object.keys(LANGUAGE_FLAGS).sort((a, b) => b.length - a.length);
@@ -90,7 +106,10 @@ export function LeftSidebar() {
     return null;
   };
 
-  // Get base filename without language suffix and extension
+  /**
+   * Removes the extension and known language suffix from a filename so localized
+   * uploads can be matched to their base screenshot.
+   */
   const getBaseFilename = (filename: string): string => {
     const base = filename.replace(/\.[^/.]+$/, '');
     const langs = Object.keys(LANGUAGE_FLAGS).sort((a, b) => b.length - a.length);
@@ -102,6 +121,10 @@ export function LeftSidebar() {
     return base;
   };
 
+  /**
+   * Finds an existing screenshot whose original or localized image filename
+   * matches the supplied file after language suffix normalization.
+   */
   const findScreenshotByBaseFilename = (filename: string): number => {
     const baseName = getBaseFilename(filename);
     const currentScreenshots = useAppStore.getState().screenshots;
@@ -115,6 +138,10 @@ export function LeftSidebar() {
     return -1;
   };
 
+  /**
+   * Shows the duplicate localized-image choice dialog. This is intentionally
+   * imperative while the sidebar keeps parity with the original upload flow.
+   */
   const showDuplicateUploadDialog = (message: string): Promise<'replace' | 'create' | 'skip'> => {
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
@@ -147,6 +174,9 @@ export function LeftSidebar() {
     });
   };
 
+  /**
+   * Displays a small blocking app alert using the existing modal CSS classes.
+   */
   const showAppAlert = (message: string): Promise<void> => new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay visible';
@@ -162,6 +192,9 @@ export function LeftSidebar() {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   });
 
+  /**
+   * Displays a confirmation dialog and resolves with the user's decision.
+   */
   const showAppConfirm = (message: string, confirmText = 'Confirm'): Promise<boolean> => new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay visible';
@@ -190,6 +223,11 @@ export function LeftSidebar() {
     });
   });
 
+  /**
+   * Imports selected browser files, detects language suffixes, attaches matching
+   * localized images to existing screenshots, or creates new screenshots from
+   * the current default style.
+   */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -242,6 +280,10 @@ export function LeftSidebar() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  /**
+   * Imports an already-read image data URL. The Tauri file picker uses this path
+   * because native file bytes must be converted before HTMLImageElement loading.
+   */
   const processImageDataUrl = async (name: string, src: string) => {
     const detectedLang = detectLanguageFromFilename(name) || currentLanguage || 'en';
     const img = new Image();
@@ -271,6 +313,9 @@ export function LeftSidebar() {
     if (!langs.includes(detectedLang)) useAppStore.getState().setState({ projectLanguages: [...langs, detectedLang] });
   };
 
+  /**
+   * Opens Tauri's native image picker when running in the desktop shell.
+   */
   const handleTauriImport = async () => {
     const tauri = (window as any).__TAURI__;
     if (!tauri) return;
@@ -296,6 +341,11 @@ export function LeftSidebar() {
     }
   };
 
+  /**
+   * Builds a new screenshot record from current defaults, cloning mutable
+   * overlay collections and inheriting image-span backgrounds from the active
+   * screenshot to preserve legacy behavior.
+   */
   const createDefaultScreenshot = (name: string, img: HTMLImageElement | null, localizedImages: Record<string, { image: HTMLImageElement; src: string; name: string }> = {}): Screenshot => {
     const store = useAppStore.getState();
     const { defaults } = store;
@@ -313,13 +363,22 @@ export function LeftSidebar() {
     };
   };
 
+  /**
+   * Adds a blank screenshot slot using the current default style.
+   */
   const handleAddBlank = () => {
     addScreenshot(createDefaultScreenshot('Blank Screen', null));
     saveState();
   };
 
+  /**
+   * Yields between expensive export renders so progress UI can repaint.
+   */
   const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+  /**
+   * Downloads a generated file through a temporary object URL.
+   */
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -329,6 +388,9 @@ export function LeftSidebar() {
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Renders and downloads the selected screenshot as a single PNG.
+   */
   const handleExportCurrent = async () => {
     if (screenshots.length === 0) return;
     const screenshot = screenshots[selectedIndex];
@@ -342,6 +404,9 @@ export function LeftSidebar() {
     }, 'image/png');
   };
 
+  /**
+   * Renders all screenshots for the active language into a ZIP file.
+   */
   const handleExportAll = async () => {
     if (screenshots.length === 0) return;
     const zip = new JSZip();
@@ -363,6 +428,10 @@ export function LeftSidebar() {
     setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 500);
   };
 
+  /**
+   * Renders every screenshot for every project language into language folders in
+   * one ZIP file.
+   */
   const handleExportAllAllLanguages = async () => {
     if (screenshots.length === 0) return;
 
@@ -395,8 +464,16 @@ export function LeftSidebar() {
     setTimeout(() => setExportProgress((p) => ({ ...p, isOpen: false })), 500);
   };
 
+  /** Opens the project dialog in create mode. */
   const handleNewProject = () => { setProjectModalMode('new'); setProjectName(''); setDuplicateFromId(''); setProjectModalOpen(true); };
+
+  /** Opens the project dialog in rename mode with the current project name. */
   const handleRenameProject = () => { setProjectModalMode('rename'); setProjectName(currentProject?.name || ''); setProjectModalOpen(true); };
+
+  /**
+   * Creates, duplicates, or renames a project and keeps the app store aligned
+   * with the project store's selected project.
+   */
   const handleProjectModalConfirm = async () => {
     if (!projectName.trim()) return;
     if (projectModalMode === 'new') {
@@ -420,6 +497,10 @@ export function LeftSidebar() {
     setProjectModalOpen(false);
     setDuplicateFromId('');
   };
+  /**
+   * Deletes the current project after confirmation and hydrates the next
+   * selected project into the app store.
+   */
   const handleDeleteProject = async () => {
     if (projects.length <= 1) return;
     const confirmed = await showAppConfirm(`Delete project "${currentProject?.name || 'Current Project'}"?`, 'Delete');
@@ -431,6 +512,9 @@ export function LeftSidebar() {
     if (nextState) useAppStore.getState().setState(nextState as any);
   };
 
+  /**
+   * Reads every record from an IndexedDB object store for project backup export.
+   */
   const readStore = (db: IDBDatabase, storeName: string) => new Promise<any[]>((resolve) => {
     const tx = db.transaction([storeName], 'readonly');
     const req = tx.objectStore(storeName).getAll();
@@ -438,6 +522,9 @@ export function LeftSidebar() {
     req.onerror = () => resolve([]);
   });
 
+  /**
+   * Writes imported backup records back into an IndexedDB object store.
+   */
   const writeStore = (db: IDBDatabase, storeName: string, records: any[]) => new Promise<void>((resolve) => {
     const tx = db.transaction([storeName], 'readwrite');
     const store = tx.objectStore(storeName);
@@ -446,6 +533,9 @@ export function LeftSidebar() {
     tx.onerror = () => resolve();
   });
 
+  /**
+   * Exports all AppScreen IndexedDB object stores as a JSON backup file.
+   */
   const handleExportProjectBackup = async () => {
     saveState();
     const db = useProjectStore.getState().db;
@@ -458,6 +548,10 @@ export function LeftSidebar() {
     downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), `appscreen-backup-${date}.json`);
   };
 
+  /**
+   * Imports a JSON IndexedDB backup, reloads project metadata, and hydrates the
+   * active project into the in-memory editor store.
+   */
   const handleImportProjectBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -482,13 +576,15 @@ export function LeftSidebar() {
     }
   };
 
-  // Drag and drop handlers
+  // Screenshot list drag-and-drop handlers.
+  /** Starts screenshot reordering from the selected list item. */
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDragIndex(index);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(index));
   };
 
+  /** Tracks the current insertion target during screenshot reordering. */
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -497,10 +593,12 @@ export function LeftSidebar() {
     }
   };
 
+  /** Clears the visual insertion marker when leaving a screenshot item. */
   const handleDragLeave = () => {
     setDragOverIndex(null);
   };
 
+  /** Applies the screenshot reorder operation and persists the new order. */
   const handleDrop = (e: React.DragEvent, toIndex: number) => {
     e.preventDefault();
     if (dragIndex !== null && dragIndex !== toIndex) {
@@ -512,31 +610,36 @@ export function LeftSidebar() {
     setDragOverIndex(null);
   };
 
+  /** Resets drag state after a completed or cancelled reorder gesture. */
   const handleDragEnd = () => {
     setDragIndex(null);
     setDragOverIndex(null);
   };
 
-  // Context menu handlers
+  // Screenshot context-menu handlers.
+  /** Opens or toggles the per-screenshot context menu. */
   const handleContextMenu = (e: React.MouseEvent, index: number) => {
     e.preventDefault();
     setContextMenuIndex(contextMenuIndex === index ? null : index);
   };
 
+  /** Closes the per-screenshot context menu. */
   const handleCloseContextMenu = () => {
     setContextMenuIndex(null);
   };
 
-  // Style transfer handlers
+  // Style transfer handlers.
   const transferStyle = useAppStore((s) => s.transferStyle);
   const applyStyleToAll = useAppStore((s) => s.applyStyleToAll);
   const setCurrentScreenshotAsDefault = useAppStore((s) => s.setCurrentScreenshotAsDefault);
 
+  /** Enters style-transfer mode using the selected screenshot as the source. */
   const handleStartTransfer = (sourceIndex: number) => {
     setTransferSource(sourceIndex);
     handleCloseContextMenu();
   };
 
+  /** Applies the source screenshot style to a clicked target screenshot. */
   const handleApplyTransfer = (targetIndex: number) => {
     if (transferSource !== null) {
       transferStyle(transferSource, targetIndex);
@@ -546,17 +649,23 @@ export function LeftSidebar() {
     handleCloseContextMenu();
   };
 
+  /** Leaves style-transfer mode without mutating screenshots. */
   const handleCancelTransfer = () => {
     setTransferSource(null);
   };
 
+  /** Copies one screenshot's style settings to every screenshot in the project. */
   const handleApplyStyleToAll = (sourceIndex: number) => {
     applyStyleToAll(sourceIndex);
     saveState();
     handleCloseContextMenu();
   };
 
-  // Export with language dialog
+  // Export with language dialog.
+  /**
+   * Opens the language export choice when multiple languages exist, otherwise
+   * exports only the active language.
+   */
   const handleExportAllClick = () => {
     if (projectLanguages.length > 1) {
       setExportLangDialogOpen(true);

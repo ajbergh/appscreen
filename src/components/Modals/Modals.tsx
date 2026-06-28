@@ -1,6 +1,16 @@
+/**
+ * Core application modals for about text, settings, and language management.
+ *
+ * These dialogs persist small user preferences directly to localStorage and
+ * update shared editor state through Zustand. Larger workflow modals, including
+ * AI translation and pickers, live in `AllModals.tsx`.
+ */
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
 
+/**
+ * Closes a modal on Escape while it is mounted and visible.
+ */
 function useEscapeKey(onClose: () => void, isOpen: boolean) {
   useEffect(() => {
     if (!isOpen) return;
@@ -11,6 +21,9 @@ function useEscapeKey(onClose: () => void, isOpen: boolean) {
 }
 
 // ===== About Modal =====
+/**
+ * Shows product, license, and asset-credit information.
+ */
 export function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   if (!isOpen) return null;
@@ -42,7 +55,7 @@ export function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
   );
 }
 
-// LLM provider config matching llm.js
+// LLM provider config used by browser-side translation and title generation flows.
 const LLM_PROVIDERS = {
   anthropic: {
     name: 'Claude (Anthropic)',
@@ -87,6 +100,10 @@ const LLM_PROVIDERS = {
 export { LLM_PROVIDERS };
 
 // ===== Settings Modal =====
+/**
+ * Lets users choose theme and AI provider settings. API keys and model choices
+ * are stored locally in the browser and read by the AI workflow modals.
+ */
 export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   const [theme, setTheme] = useState(localStorage.getItem('themePreference') || 'dark');
@@ -107,8 +124,13 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
   if (!isOpen) return null;
 
+  /**
+   * Persists theme, selected provider, provider API keys, and model IDs. The key
+   * validation here is prefix-based only; provider APIs still perform final
+   * validation when a translation/generation request runs.
+   */
   const handleSave = () => {
-    // Save theme
+    // Save theme.
     localStorage.setItem('themePreference', theme);
     if (theme === 'light' || theme === 'dark') {
       document.documentElement.dataset.theme = theme;
@@ -116,10 +138,10 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
       document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     }
 
-    // Save provider
+    // Save provider.
     localStorage.setItem('aiProvider', aiProvider);
 
-    // Save all API keys and models
+    // Save all API keys and models.
     const newStatus: Record<string, string> = {};
     let valid = true;
     (Object.keys(LLM_PROVIDERS) as Array<keyof typeof LLM_PROVIDERS>).forEach((provider) => {
@@ -217,6 +239,10 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 }
 
 // ===== Languages Modal =====
+/**
+ * Manages the language list for the current project and removes language-scoped
+ * images/text/defaults when a language is deleted.
+ */
 export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
@@ -260,6 +286,10 @@ export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
     { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
   ];
 
+  /**
+   * Toggles a project language in local modal state. English is protected as the
+   * baseline fallback language for screenshots and defaults.
+   */
   const toggleLanguage = (code: string) => {
     if (code === 'en') return; // English is always present
     setLanguages(prev =>
@@ -267,6 +297,10 @@ export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
     );
   };
 
+  /**
+   * Applies the modal language set to the app store and removes stale localized
+   * image/text/default records for languages that were unchecked.
+   */
   const handleDone = () => {
     const store = useAppStore.getState();
     const removedLangs = projectLanguages.filter(l => !languages.includes(l));

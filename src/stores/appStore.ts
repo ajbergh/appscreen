@@ -1,3 +1,12 @@
+/**
+ * In-memory application state for the React screenshot generator.
+ *
+ * The store mirrors the legacy vanilla `state` shape closely enough for parity
+ * and migration, while exposing explicit actions for React controls. It keeps
+ * live `HTMLImageElement` objects in memory; `projectStore` is responsible for
+ * converting those objects to serializable source strings before IndexedDB
+ * writes.
+ */
 import { create } from 'zustand';
 import type {
   AppState,
@@ -12,6 +21,13 @@ import { useProjectStore } from './projectStore';
 
 // ===== Helper functions =====
 
+/**
+ * Produces a complete background settings object from partial or legacy data.
+ *
+ * Legacy projects may contain `imageFit: "fill"` or live `image` objects. The
+ * normalized state stores `stretch` for fill behavior and preserves image source
+ * strings while leaving live image hydration to project loading code.
+ */
 function normalizeBackgroundSettings(background: Partial<BackgroundSettings> | undefined): BackgroundSettings {
   const bg = background || {};
   const rawImageFit = (bg as any).imageFit;
@@ -40,6 +56,9 @@ function normalizeBackgroundSettings(background: Partial<BackgroundSettings> | u
   };
 }
 
+/**
+ * Returns the default text style and localization settings for new screenshots.
+ */
 function getDefaultTextSettings(): TextSettings {
   return {
     headlineEnabled: true,
@@ -82,6 +101,9 @@ function getDefaultTextSettings(): TextSettings {
   };
 }
 
+/**
+ * Returns all style defaults copied into newly uploaded or blank screenshots.
+ */
 function getDefaultSettings(): DefaultSettings {
   return {
     background: normalizeBackgroundSettings(undefined),
@@ -116,6 +138,12 @@ function getDefaultSettings(): DefaultSettings {
   };
 }
 
+/**
+ * Merges partial or older text data with current defaults.
+ *
+ * This protects the UI and renderer from missing localization maps, selected
+ * language ids, or per-language layout containers when loading older projects.
+ */
 function normalizeTextSettings(text: Partial<TextSettings> | undefined): TextSettings {
   const defaults = getDefaultTextSettings();
   if (!text) return defaults;
@@ -131,6 +159,12 @@ function normalizeTextSettings(text: Partial<TextSettings> | undefined): TextSet
   return merged;
 }
 
+/**
+ * Reads a dot-delimited nested property from an object.
+ *
+ * Kept for parity with the original setting-control model; currently useful for
+ * future controls that need to inspect nested settings by path.
+ */
 function getNestedValue(obj: Record<string, unknown>, key: string): unknown {
   const parts = key.split('.');
   let current: unknown = obj;
@@ -144,6 +178,9 @@ function getNestedValue(obj: Record<string, unknown>, key: string): unknown {
   return current;
 }
 
+/**
+ * Writes a dot-delimited nested setting path, creating missing containers.
+ */
 function setNestedValue(obj: Record<string, unknown>, key: string, value: unknown): void {
   const parts = key.split('.');
   let current: Record<string, unknown> = obj;
@@ -156,20 +193,32 @@ function setNestedValue(obj: Record<string, unknown>, key: string, value: unknow
   current[parts[parts.length - 1]] = value;
 }
 
+/**
+ * Shallow-clones localized image metadata while preserving hydrated image refs.
+ */
 function cloneLocalizedImages(localizedImages: Screenshot['localizedImages'] = {}) {
   return Object.fromEntries(
     Object.entries(localizedImages).map(([lang, data]) => [lang, { ...data }])
   );
 }
 
+/**
+ * Clones element defaults and assigns fresh ids for the new screenshot context.
+ */
 function cloneElements(elements: Screenshot['elements'] = []) {
   return elements.map((el) => ({ ...el, id: crypto.randomUUID(), image: el.image || null, texts: { ...(el.texts || {}) }, iconShadow: el.iconShadow ? { ...el.iconShadow } : undefined }));
 }
 
+/**
+ * Clones popout defaults and assigns fresh ids for the new screenshot context.
+ */
 function clonePopouts(popouts: Screenshot['popouts'] = []) {
   return popouts.map((p) => ({ ...p, id: crypto.randomUUID(), shadow: { ...p.shadow }, border: { ...p.border } }));
 }
 
+/**
+ * Appends "(Copy)" before a filename extension for duplicated screenshots.
+ */
 function copyName(name: string): string {
   const match = name.match(/^(.*?)(\.[^.]+)?$/);
   const base = match?.[1] || name;
@@ -225,6 +274,13 @@ interface AppStore extends AppState {
   saveState: () => void;
 }
 
+/**
+ * Zustand store used by every editor panel and render surface.
+ *
+ * Actions mutate immutable slices only; persistence is explicit through
+ * `saveState()` so `App.tsx` can debounce writes and project switching can
+ * hydrate state without writing intermediate values.
+ */
 export const useAppStore = create<AppStore>((set, get) => ({
   // Initial state
   screenshots: [],

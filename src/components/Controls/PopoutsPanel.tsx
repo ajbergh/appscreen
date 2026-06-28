@@ -1,7 +1,17 @@
+/**
+ * Popout editor for cropped callouts from the selected screenshot image.
+ *
+ * Popouts store crop percentages against the source image and placement
+ * percentages against the output canvas. This panel manages list ordering,
+ * thumbnail previews, crop-rectangle dragging, and shadow/border styling.
+ */
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import type { PopoutSettings } from '../../types';
 
+/**
+ * Renders a small canvas thumbnail of the popout crop region.
+ */
 function PopoutThumb({ popout, sourceImage }: { popout: PopoutSettings; sourceImage: HTMLImageElement | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -23,6 +33,9 @@ function PopoutThumb({ popout, sourceImage }: { popout: PopoutSettings; sourceIm
   return <canvas ref={ref} />;
 }
 
+/**
+ * Renders popout creation, ordering, crop, and style controls.
+ */
 export function PopoutsPanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const updateScreenshot = useAppStore((s) => s.updateScreenshot);
@@ -42,11 +55,17 @@ export function PopoutsPanel() {
   const selectedPopout = popouts.find((p) => p.id === selectedPopoutId) || null;
   const sourceImage = currentScreenshot?.localizedImages?.['en']?.image || currentScreenshot?.image || null;
 
+  /**
+   * Applies partial popout updates to the selected screenshot.
+   */
   const updatePopout = (id: string, updates: Partial<PopoutSettings>) => {
     const newPopouts = popouts.map((p) => p.id === id ? { ...p, ...updates } : p);
     updateScreenshot(selectedIndex, { popouts: newPopouts });
   };
 
+  /**
+   * Converts a pointer event to the crop-preview canvas coordinate space.
+   */
   const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
@@ -56,6 +75,9 @@ export function PopoutsPanel() {
     };
   };
 
+  /**
+   * Converts crop percentages to preview-canvas pixels for drawing and hit tests.
+   */
   const getCropRect = (p: PopoutSettings, canvas: HTMLCanvasElement) => ({
     x: (p.cropX / 100) * canvas.width,
     y: (p.cropY / 100) * canvas.height,
@@ -63,6 +85,9 @@ export function PopoutsPanel() {
     h: (p.cropHeight / 100) * canvas.height,
   });
 
+  /**
+   * Returns the active crop handle or move mode at a preview-canvas point.
+   */
   const hitTestCrop = (p: PopoutSettings, canvas: HTMLCanvasElement, x: number, y: number) => {
     const r = getCropRect(p, canvas);
     const hs = 14;
@@ -78,6 +103,9 @@ export function PopoutsPanel() {
     return '';
   };
 
+  /**
+   * Keeps crop percentages inside the source image with a minimum visible size.
+   */
   const clampCrop = (crop: Partial<PopoutSettings>) => {
     const min = 5;
     let cropX = crop.cropX ?? 0;
@@ -91,6 +119,9 @@ export function PopoutsPanel() {
     return { cropX, cropY, cropWidth, cropHeight };
   };
 
+  /**
+   * Starts dragging either the crop rectangle or one of its resize handles.
+   */
   const handleCropPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!selectedPopout) return;
     const point = getCanvasPoint(e);
@@ -100,6 +131,10 @@ export function PopoutsPanel() {
     cropDragRef.current = { mode, startX: point.x, startY: point.y, original: selectedPopout };
   };
 
+  /**
+   * Converts pointer movement into crop percentage changes and clamps the result
+   * before writing it to screenshot state.
+   */
   const handleCropPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = cropDragRef.current;
     if (!drag || !selectedPopout) return;
@@ -122,6 +157,9 @@ export function PopoutsPanel() {
     updatePopout(selectedPopout.id, clampCrop(crop));
   };
 
+  /**
+   * Finishes crop dragging and releases pointer capture.
+   */
   const handleCropPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (cropDragRef.current) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -129,6 +167,9 @@ export function PopoutsPanel() {
     }
   };
 
+  /**
+   * Adds a default popout crop when the selected screenshot has source imagery.
+   */
   const addPopout = () => {
     if (!hasImage) return;
     const p: PopoutSettings = {
@@ -143,11 +184,17 @@ export function PopoutsPanel() {
     setSelectedPopoutId(p.id);
   };
 
+  /**
+   * Removes a popout and clears selection if it was active.
+   */
   const deletePopout = (id: string) => {
     updateScreenshot(selectedIndex, { popouts: popouts.filter((p) => p.id !== id) });
     if (selectedPopoutId === id) setSelectedPopoutId(null);
   };
 
+  /**
+   * Reorders popouts; later entries are rendered above earlier popouts.
+   */
   const movePopout = (id: string, direction: 'up' | 'down') => {
     const idx = popouts.findIndex((p) => p.id === id);
     if (idx === -1) return;
@@ -160,7 +207,7 @@ export function PopoutsPanel() {
     updateScreenshot(selectedIndex, { popouts: newPopouts });
   };
 
-  // Draw crop preview
+  // Draw crop preview and interactive handles whenever the crop or source image changes.
   useEffect(() => {
     if (!selectedPopout || !sourceImage || !cropPreviewRef.current) return;
     const canvas = cropPreviewRef.current;

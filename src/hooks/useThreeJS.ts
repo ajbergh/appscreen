@@ -1,3 +1,11 @@
+/**
+ * Three.js integration for 3D device previews and export compositing.
+ *
+ * The hook owns the WebGL renderer, scene, active preview model, cached export
+ * models, screen texture generation, frame-color traversal, and drag helpers.
+ * It exposes a narrow adapter through `setThreeRenderer()` so the Canvas 2D
+ * pipeline can insert 3D output without importing Three.js directly.
+ */
 import { useRef, useEffect, useCallback } from 'react';
 import * as ThreeModule from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -95,6 +103,13 @@ interface ThreeJSState {
   modelCache: Record<string, any>;
 }
 
+/**
+ * Builds a rounded rectangle shape for procedural devices.
+ *
+ * The procedural iPad uses this shape for its extruded frame and flat glass
+ * panels, avoiding a separate GLB asset while keeping material names compatible
+ * with the frame-color preset traversal.
+ */
 function createRoundedRectShape(width: number, height: number, radius: number, THREE: any) {
   const shape = new THREE.Shape();
   const x = -width / 2;
@@ -112,6 +127,12 @@ function createRoundedRectShape(width: number, height: number, radius: number, T
   return shape;
 }
 
+/**
+ * Creates the procedural iPad model used for preview and export rendering.
+ *
+ * Mesh material names (`frame`, `back_glass`, `bezel`, `camera`) intentionally
+ * match the keys in `frameColorPresets.ipad`.
+ */
 function createProceduralDeviceModel(config: any, THREE: any) {
   const group = new THREE.Group();
   const screenHeight = 4.3 * config.screenHeightFactor;
@@ -163,6 +184,12 @@ function createProceduralDeviceModel(config: any, THREE: any) {
   return group;
 }
 
+/**
+ * Applies a device color preset by traversing model mesh materials.
+ *
+ * Imported GLB files and procedural models both rely on material names rather
+ * than mesh names, matching the original `three-renderer.js` behavior.
+ */
 function applyFrameColor(model: any, presetId: string | undefined, deviceType: string): void {
   if (!model || !presetId) return;
   const preset = frameColorPresets[deviceType]?.find((p) => p.id === presetId);
@@ -180,6 +207,13 @@ function applyFrameColor(model: any, presetId: string | undefined, deviceType: s
   });
 }
 
+/**
+ * Converts a screenshot image into a rounded, aspect-correct screen texture.
+ *
+ * The returned canvas is letterboxed as needed to match the target device
+ * aspect ratio and clipped with the same corner-radius factor used by the 3D
+ * screen plane.
+ */
 function createDeviceScreenImage(image: HTMLImageElement, config: any): HTMLCanvasElement {
   const targetAspect = config.aspectRatio || (image.width / image.height);
   const imageAspect = image.width / image.height;
@@ -228,6 +262,14 @@ function createDeviceScreenImage(image: HTMLImageElement, config: any): HTMLCanv
   return canvas;
 }
 
+/**
+ * Initializes and controls the Three.js device renderer for the preview area.
+ *
+ * Callers use the returned methods to initialize the scene, load a device model,
+ * update the visible screen texture, apply rotations/colors, and wire pointer
+ * dragging. Export rendering is registered internally through the canvas hook
+ * adapter.
+ */
 export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>) {
   const stateRef = useRef<ThreeJSState>({
     renderer: null, scene: null, camera: null, phoneModel: null, phonePivot: null,
@@ -238,6 +280,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
 
   const animFrameRef = useRef<number>(0);
 
+  /**
+   * Creates the WebGL scene and registers the initial not-ready render adapter.
+   *
+   * The adapter is marked ready only after the first model finishes loading, so
+   * the Canvas pipeline can safely fall back to 2D behavior during startup.
+   */
   const initScene = useCallback(() => {
     const container = containerRef.current;
     if (!container || stateRef.current.isInitialized) return;
@@ -285,6 +333,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     loadPhoneModel('iphone');
   }, [containerRef]);
 
+  /**
+   * Loads the active preview model for the selected 3D device type.
+   *
+   * GLB devices are loaded through `GLTFLoader`; procedural devices are created
+   * in memory. Any previous preview model is disposed before the new one is
+   * attached to the scene.
+   */
   const loadPhoneModel = useCallback((deviceType: string) => {
     const state = stateRef.current;
     if (!state.scene || state.phoneModelLoading) return;
@@ -324,6 +379,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     );
   }, []);
 
+  /**
+   * Normalizes a newly loaded model and creates its screen overlay plane.
+   *
+   * The raw model is centered, scaled to the common preview size, offset so its
+   * physical screen plane aligns with the custom screenshot texture, and then
+   * registered as the ready renderer adapter.
+   */
   const finishModelLoad = useCallback((model: any, deviceType: string) => {
     const state = stateRef.current;
     if (!state.scene) return;
@@ -369,6 +431,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     });
   }, []);
 
+  /**
+   * Updates the live preview model's screen texture from a screenshot image.
+   *
+   * Export rendering uses a separate temporary material path so this method only
+   * affects the interactive preview model.
+   */
   const updateScreenTexture = useCallback((image: HTMLImageElement | null) => {
     const state = stateRef.current;
     if (!state.phoneModel || !image) return;
@@ -390,6 +458,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     stateRef.current.screenTexture = texture;
   }, []);
 
+  /**
+   * Prepares a cached model clone for offscreen per-screenshot rendering.
+   *
+   * Cached models need the same centering, scaling, pivot, and screen-plane setup
+   * as the live preview model, but they are only attached to the scene while an
+   * export or side-preview render is in progress.
+   */
   const buildRenderableModel = useCallback((model: any, deviceType: string) => {
     const config = deviceConfigs[deviceType] || deviceConfigs.iphone;
 
@@ -422,6 +497,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     return { model, pivot, screenPlane, baseScale: modelBaseScale, loaded: true, loading: false };
   }, []);
 
+  /**
+   * Loads or returns a cached renderable model for a non-active device.
+   *
+   * This allows batch export and side previews to render screenshots with mixed
+   * 3D device types without replacing the user's active preview model.
+   */
   const loadCachedPhoneModel = useCallback((deviceType: string): Promise<any> => {
     const state = stateRef.current;
     if (state.modelCache[deviceType]?.loaded) return Promise.resolve(state.modelCache[deviceType]);
@@ -468,6 +549,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     return promise;
   }, [buildRenderableModel]);
 
+  /**
+   * Renders a specific screenshot's 3D device into a supplied 2D canvas.
+   *
+   * The method temporarily swaps the screen texture, frame color, model
+   * transform, scene background, and renderer size, then restores the preview
+   * scene so live interaction is not disturbed by exports or side previews.
+   */
   const renderForScreenshotInternal = useCallback(async (
     targetCanvas: HTMLCanvasElement,
     width: number,
@@ -559,6 +647,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     return true;
   }, [loadCachedPhoneModel]);
 
+  /**
+   * Applies interactive preview rotation in degrees.
+   *
+   * Device-specific base rotations are added so the UI sliders represent the
+   * same values across GLB and procedural devices.
+   */
   const setRotation = useCallback((x: number, y: number, z: number) => {
     const state = stateRef.current;
     if (!state.phonePivot) return;
@@ -569,11 +663,21 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     state.phonePivot.rotation.z = (z + modelRot.z) * Math.PI / 180;
   }, []);
 
+  /**
+   * Recolors the active preview model using a frame color preset id.
+   */
   const setFrameColor = useCallback((presetId?: string, deviceType?: string) => {
     const state = stateRef.current;
     applyFrameColor(state.phoneModel, presetId, deviceType || state.currentDeviceModel || 'iphone');
   }, []);
 
+  /**
+   * Fallback renderer for the currently active preview model.
+   *
+   * This path is used when the full per-screenshot renderer is unavailable. It
+   * does not swap models or textures, so callers should prefer
+   * `renderForScreenshotInternal()` for exports and thumbnails.
+   */
   const renderToCanvasInternal = useCallback((
     targetCanvas: HTMLCanvasElement,
     width: number,
@@ -655,7 +759,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     };
   }, []);
 
-  // Drag-to-rotate on the container element
+  /**
+   * Wires pointer gestures for 3D rotation and Alt-drag movement.
+   *
+   * The guard against `.element-dragging` prevents element drag operations on
+   * the preview canvas from also rotating the 3D model.
+   */
   const setupDragRotate = useCallback((container: HTMLElement, onDrag: (dx: number, dy: number, mode: 'rotate' | 'move') => void) => {
     let isDragging = false;
     let lastX = 0;

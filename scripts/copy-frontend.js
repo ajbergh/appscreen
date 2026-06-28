@@ -1,3 +1,10 @@
+/**
+ * Copies the static frontend project into `frontend-dist/` for packaging flows
+ * that expect a self-contained asset directory.
+ *
+ * This is separate from the Vite production build: it preserves source/static
+ * assets while excluding repository, dependency, build, and script directories.
+ */
 const fs = require('fs');
 const path = require('path');
 
@@ -8,6 +15,10 @@ const exclude = new Set([
     '.claude', 'frontend-dist', 'scripts', '.DS_Store'
 ]);
 
+/**
+ * Recursively copies a directory while skipping top-level project folders that
+ * should not be included in frontend packaging output.
+ */
 function copyDir(srcDir, destDir) {
     fs.mkdirSync(destDir, { recursive: true });
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
@@ -22,7 +33,7 @@ function copyDir(srcDir, destDir) {
     }
 }
 
-// Clean and recreate
+// Clean and recreate the packaging directory.
 if (fs.existsSync(dest)) {
     fs.rmSync(dest, { recursive: true });
 }

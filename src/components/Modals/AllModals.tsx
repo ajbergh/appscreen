@@ -1,7 +1,18 @@
+/**
+ * Extended workflow modals used by the screenshot editor.
+ *
+ * This module contains AI-assisted translation/title flows, export progress,
+ * language-specific image management, emoji selection, and icon selection. The
+ * AI helpers call provider APIs directly from the browser using locally stored
+ * user keys, matching the current client-only architecture.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { LLM_PROVIDERS } from './Modals';
 
+/**
+ * Closes a workflow modal on Escape while it is visible.
+ */
 function useEscapeKey(onClose: () => void, isOpen: boolean) {
   useEffect(() => {
     if (!isOpen) return;
@@ -11,6 +22,11 @@ function useEscapeKey(onClose: () => void, isOpen: boolean) {
   }, [isOpen, onClose]);
 }
 
+/**
+ * Sends a text-only prompt to the configured AI provider and returns the raw
+ * response text. Authentication/model failures are normalized to AI_UNAVAILABLE
+ * so callers can show consistent user-facing status.
+ */
 async function callTextProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: string, model: string, prompt: string): Promise<string> {
   if (provider === 'anthropic') {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -42,6 +58,10 @@ async function callTextProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: st
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
+/**
+ * Extracts and parses the first JSON object from an AI response, tolerating
+ * fenced code blocks because several models include them even when asked not to.
+ */
 function cleanJsonResponse(responseText: string): any {
   const cleaned = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
@@ -49,6 +69,9 @@ function cleanJsonResponse(responseText: string): any {
 }
 
 // ===== Export Progress Modal =====
+/**
+ * Displays non-interactive progress while ZIP export renders canvases.
+ */
 export function ExportProgressModal({ isOpen, progress, status, detail }: {
   isOpen: boolean; progress: number; status: string; detail: string;
 }) {
@@ -68,6 +91,10 @@ export function ExportProgressModal({ isOpen, progress, status, detail }: {
 }
 
 // ===== Translate Modal =====
+/**
+ * Edits or AI-generates translations for one headline, subheadline, or overlay
+ * text element on the selected screenshot.
+ */
 export function TranslateModal({ isOpen, onClose, target, elementId, screenshots, selectedIndex, currentLanguage }: {
   isOpen: boolean; onClose: () => void; target: 'headline' | 'subheadline' | 'element';
   elementId?: string;
@@ -99,6 +126,10 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
 
   if (!isOpen || !screenshot) return null;
 
+  /**
+   * Applies entered translations back to the selected screenshot or element and
+   * persists the project.
+   */
   const handleApply = () => {
     if (target === 'headline') {
       const newHeadlines = { ...screenshot.text.headlines };
@@ -126,6 +157,10 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
     onClose();
   };
 
+  /**
+   * Requests translations for every target project language from the configured
+   * AI provider and stages successful results in modal state for review.
+   */
   const handleAiTranslate = async () => {
     const sourceText = translations[sourceLang];
     if (!sourceText) { setAiStatus('Please enter source text first'); return; }
@@ -226,6 +261,10 @@ Return ONLY a valid JSON object mapping language codes to translations, like:
   );
 }
 
+/**
+ * Translates every populated headline and subheadline in the project from one
+ * source language to the remaining project languages.
+ */
 export function TranslateAllModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   const screenshots = useAppStore((s) => s.screenshots);
@@ -248,6 +287,10 @@ export function TranslateAllModal({ isOpen, onClose }: { isOpen: boolean; onClos
   });
   const targetLangs = projectLanguages.filter((lang) => lang !== sourceLang);
 
+  /**
+   * Batches project text into one provider request, then distributes returned
+   * translations back to each screenshot's localized text maps.
+   */
   const handleTranslate = async () => {
     const provider = (localStorage.getItem('aiProvider') || 'anthropic') as keyof typeof LLM_PROVIDERS;
     const providerConfig = LLM_PROVIDERS[provider];
@@ -316,11 +359,19 @@ ${sourceItems.map((item) => `${item.id}: ${JSON.stringify(item.text)}`).join('\n
   );
 }
 
+/**
+ * Splits a base64 data URL into MIME type and payload for multimodal provider
+ * APIs.
+ */
 function parseDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   return match ? { mimeType: match[1], base64: match[2] } : null;
 }
 
+/**
+ * Sends screenshot images plus a text prompt to the configured multimodal AI
+ * provider and returns the raw response text.
+ */
 async function callVisionProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: string, model: string, images: Array<{ mimeType: string; base64: string }>, prompt: string): Promise<string> {
   if (provider === 'anthropic') {
     const content: any[] = images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.base64 } }));
@@ -358,6 +409,10 @@ async function callVisionProvider(provider: keyof typeof LLM_PROVIDERS, apiKey: 
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
+/**
+ * Generates headline and subheadline copy by asking the configured vision model
+ * to analyze the current screenshot images in sequence.
+ */
 export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   const screenshots = useAppStore((s) => s.screenshots);
@@ -370,6 +425,10 @@ export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   if (!isOpen) return null;
 
+  /**
+   * Collects language-appropriate screenshot images, calls the vision provider,
+   * and writes returned title/subtitle pairs onto each screenshot.
+   */
   const handleGenerate = async () => {
     const provider = (localStorage.getItem('aiProvider') || 'anthropic') as keyof typeof LLM_PROVIDERS;
     const providerConfig = LLM_PROVIDERS[provider];
@@ -442,6 +501,9 @@ Write all titles in ${sourceLang}.`;
 }
 
 // ===== Screenshot Translations Modal =====
+/**
+ * Manages per-language source images for the selected screenshot.
+ */
 export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, selectedIndex }: {
   isOpen: boolean; onClose: () => void; screenshots: any[]; selectedIndex: number;
 }) {
@@ -456,10 +518,17 @@ export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, sele
 
   if (!isOpen || !screenshot) return null;
 
+  /**
+   * Checks whether the screenshot has an image for a language, treating the base
+   * screenshot image as the English fallback.
+   */
   const hasImageForLang = (lang: string) => {
     return !!(screenshot.localizedImages?.[lang]?.image || (lang === 'en' && screenshot.image));
   };
 
+  /**
+   * Uploads or replaces a language-specific screenshot image.
+   */
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uploadLang) return;
@@ -479,6 +548,9 @@ export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, sele
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  /**
+   * Removes a non-English localized screenshot image.
+   */
   const handleRemoveImage = (lang: string) => {
     const newLocalized = { ...screenshot.localizedImages };
     delete newLocalized[lang];
@@ -531,6 +603,11 @@ export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, sele
 }
 
 // ===== Emoji Picker =====
+/**
+ * Provides searchable emoji selection for decorative overlay elements. When the
+ * bundled emoji data script is unavailable, it falls back to local category
+ * arrays defined in this component.
+ */
 export function EmojiPicker({ isOpen, onClose, onSelect }: {
   isOpen: boolean; onClose: () => void; onSelect: (emoji: string, name?: string) => void;
 }) {
@@ -602,6 +679,10 @@ export function EmojiPicker({ isOpen, onClose, onSelect }: {
 }
 
 // ===== Icon Picker =====
+/**
+ * Provides searchable Lucide icon selection for overlay elements. Icon name
+ * lists prefer bundled globals and fall back to a curated popular list.
+ */
 export function IconPicker({ isOpen, onClose, onSelect }: {
   isOpen: boolean; onClose: () => void; onSelect: (iconName: string) => void;
 }) {

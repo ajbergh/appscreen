@@ -1,3 +1,12 @@
+/**
+ * IndexedDB-backed project metadata and persistence store.
+ *
+ * Project state is split from the in-memory app store because saved projects
+ * must serialize live browser objects such as `HTMLImageElement` before writing
+ * to IndexedDB, then hydrate them again when a project is loaded. This module
+ * also handles legacy vanilla-app fields (`src`, `imageSrc`, `fill`) and format
+ * migrations for older 3D positioning data.
+ */
 import { create } from 'zustand';
 import type { Project } from '../types';
 
@@ -6,6 +15,13 @@ const DB_VERSION = 2;
 
 const SUPPORTED_LANGS = ['en-gb', 'pt-br', 'zh-tw', 'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'ja', 'ko', 'zh', 'ar', 'hi', 'tr', 'pl', 'sv', 'da', 'no', 'fi', 'th', 'vi', 'id', 'uk'];
 
+/**
+ * Infers a localized screenshot language from a filename suffix.
+ *
+ * Supports both dash and underscore separators, plus common region variants
+ * such as `pt-br` and `zh-tw`. Unknown names default to English for compatibility
+ * with the original uploader.
+ */
 function detectLanguageFromFilename(filename = ''): string {
   const lower = filename.toLowerCase();
   for (const lang of SUPPORTED_LANGS) {
@@ -16,6 +32,13 @@ function detectLanguageFromFilename(filename = ''): string {
   return 'en';
 }
 
+/**
+ * Converts a background object into an IndexedDB-safe shape.
+ *
+ * Live `HTMLImageElement` values cannot be structured-cloned reliably, so only
+ * the source string is persisted. Legacy `fill` fit values are normalized to the
+ * React renderer's `stretch` value.
+ */
 function serializeBackground(background: any) {
   if (!background) return background;
   const imageSrc = background.imageSrc || background.image?.src || null;
@@ -27,7 +50,13 @@ function serializeBackground(background: any) {
   };
 }
 
-// Serialize screenshots: convert Image objects to base64 data URLs
+/**
+ * Serializes screenshots for IndexedDB.
+ *
+ * The saved shape preserves legacy `src` for original-app compatibility, stores
+ * localized image source/name metadata, removes live image objects, and leaves
+ * enough element/icon source data to reconstruct renderable images on load.
+ */
 function serializeScreenshots(screenshots: any[]) {
   return screenshots.map((s) => {
     const serialized: any = { ...s };
@@ -56,6 +85,12 @@ function serializeScreenshots(screenshots: any[]) {
   });
 }
 
+/**
+ * Hydrates an image source string into an `HTMLImageElement`.
+ *
+ * Failures resolve to `null` instead of throwing so one broken image does not
+ * prevent an entire project from loading.
+ */
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     if (!src) { resolve(null); return; }
@@ -66,6 +101,12 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
+/**
+ * Rebuilds a Lucide icon image when older project data only saved icon metadata.
+ *
+ * Newer icon elements prefer stored SVG/data URLs, but this fetch fallback keeps
+ * older saved projects renderable when network access is available.
+ */
 async function loadLucideIconImage(name: string, color = '#ffffff', strokeWidth = 2): Promise<HTMLImageElement | null> {
   try {
     const resp = await fetch(`https://unpkg.com/lucide-static@latest/icons/${name}.svg`);
@@ -80,6 +121,12 @@ async function loadLucideIconImage(name: string, color = '#ffffff', strokeWidth 
   }
 }
 
+/**
+ * Migrates pre-formatVersion-2 3D position values to the current transform math.
+ *
+ * The old renderer used a different offset range. The migration expands stored
+ * x/y values so existing projects visually land closer to their original output.
+ */
 function migrate3DPosition(screenshotSettings: any): void {
   if (!screenshotSettings?.use3D) return;
   const scale = (screenshotSettings.scale || 70) / 100;
@@ -91,7 +138,12 @@ function migrate3DPosition(screenshotSettings: any): void {
   screenshotSettings.y = Math.max(0, Math.min(100, 50 + (oldY - 50) * yFactor));
 }
 
-// Deserialize screenshots: rebuild Image objects from base64 data URLs
+/**
+ * Hydrates persisted screenshots back into runtime-ready objects.
+ *
+ * Recreates root images, localized images, background images, element images,
+ * icon fallbacks, default arrays, and optional 3D position migration.
+ */
 function deserializeScreenshots(screenshots: any[], needs3DMigration = false): Promise<any[]> {
   return Promise.all(
     screenshots.map(async (s) => {
@@ -165,6 +217,13 @@ interface ProjectStore {
   updateScreenshotCount: (count: number) => void;
 }
 
+/**
+ * Opens or upgrades the project database.
+ *
+ * Version 2 uses separate `projects` and `meta` stores and deletes the legacy
+ * single `state` store if present. Errors resolve to `null` so the UI can still
+ * run without persistence in restricted browser contexts.
+ */
 function openDatabase(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     try {
@@ -193,6 +252,9 @@ function openDatabase(): Promise<IDBDatabase | null> {
   });
 }
 
+/**
+ * Zustand store for project list metadata and IndexedDB project records.
+ */
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   projects: [{ id: 'default', name: 'Default Project', screenshotCount: 0 }],
   currentProjectId: 'default',

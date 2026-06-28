@@ -1,3 +1,10 @@
+/**
+ * Device editor for 2D screenshot placement and 3D mockup controls.
+ *
+ * The values edited here are consumed by both the Canvas renderer and the
+ * Three.js adapter, so slider ranges intentionally match the vanilla app's
+ * exported-pixel behavior rather than only the visible preview size.
+ */
 import { useAppStore } from '../../stores/appStore';
 
 const POSITION_PRESETS = [
@@ -40,6 +47,9 @@ const FRAME_COLORS: Record<string, { id: string; label: string; swatch: string }
   ],
 };
 
+/**
+ * Renders screenshot/device controls for the selected screenshot.
+ */
 export function DevicePanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const setScreenshotSetting = useAppStore((s) => s.setScreenshotSetting);

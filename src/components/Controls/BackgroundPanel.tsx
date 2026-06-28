@@ -1,3 +1,11 @@
+/**
+ * Background editor for the right sidebar.
+ *
+ * Owns gradient/solid/image controls for the selected screenshot, including
+ * draggable gradient stops, panoramic image-span detection, image blur/overlay,
+ * and noise settings. All writes go through the app store so the canvas preview,
+ * exports, and autosave see the same normalized background state.
+ */
 import { useRef, useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { getCanvasDimensions } from '../../canvas/renderer';
@@ -30,6 +38,9 @@ const GRADIENT_PRESETS = [
   { name: 'Royal Navy', gradient: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', angle: 135, stops: [{ color: '#1e3c72', position: 0 }, { color: '#2a5298', position: 100 }] },
 ];
 
+/**
+ * Renders controls for the selected screenshot's background settings.
+ */
 export function BackgroundPanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const setBackground = useAppStore((s) => s.setBackground);
@@ -54,6 +65,12 @@ export function BackgroundPanel() {
     noise: false, noiseIntensity: 10,
   };
 
+  /**
+   * Converts a pointer position on the gradient rail into a 0-100 stop position.
+   *
+   * Stops are sorted after every drag update so the Canvas gradient receives a
+   * valid ascending stop list.
+   */
   const updateStopPositionFromPointer = (e: React.PointerEvent, index: number) => {
     const rect = stopEditorRef.current?.getBoundingClientRect();
     if (!rect) return;

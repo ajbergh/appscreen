@@ -1,3 +1,10 @@
+/**
+ * Decorative element editor for graphics, text, emoji, and Lucide icons.
+ *
+ * Elements are stored per screenshot and rendered by layer in the Canvas
+ * pipeline. This panel manages list ordering, localized text values, icon SVG
+ * caching/colorization, and element-specific styling controls.
+ */
 import { useState, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { FontPicker } from '../UI/FontPicker';
@@ -10,6 +17,9 @@ const LAYERS = [
   { value: 'above-text', label: 'Front' },
 ];
 
+/**
+ * Renders the element list, add buttons, and property editor for the selection.
+ */
 export function ElementsPanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const updateScreenshot = useAppStore((s) => s.updateScreenshot);
@@ -26,6 +36,13 @@ export function ElementsPanel() {
   const elements = currentScreenshot?.elements || [];
   const selectedElement = elements.find((el) => el.id === selectedElementId) || null;
 
+  /**
+   * Returns a colorized data URL for a Lucide icon.
+   *
+   * Raw SVG is cached in localStorage after the first network fetch. If the CDN
+   * is unavailable, a small labeled fallback SVG keeps the element visible and
+   * serializable.
+   */
   const getIconDataUrl = async (iconName: string, color = '#ffffff', strokeWidth = 2) => {
     let svgText = localStorage.getItem(`lucide-svg:${iconName}`) || '';
     if (!svgText) {
@@ -48,6 +65,9 @@ export function ElementsPanel() {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(colorized)}`;
   };
 
+  /**
+   * Rehydrates an icon image after color or stroke-width changes.
+   */
   const reloadIconImage = async (el: ElementSettings, newElements: ElementSettings[]) => {
     if (el.type !== 'icon' || !el.iconName) return;
     try {
@@ -61,6 +81,9 @@ export function ElementsPanel() {
     } catch { /* ignore */ }
   };
 
+  /**
+   * Updates an element and refreshes icon image data when visual icon settings change.
+   */
   const updateElement = (id: string, updates: Partial<ElementSettings>) => {
     const updatedEl = { ...elements.find((el) => el.id === id)!, ...updates };
     const newElements = elements.map((el) => el.id === id ? updatedEl : el);
@@ -71,8 +94,14 @@ export function ElementsPanel() {
     }
   };
 
+  /**
+   * Opens the hidden image input used to create a graphic overlay element.
+   */
   const addGraphicElement = () => { graphicInputRef.current?.click(); };
 
+  /**
+   * Converts an uploaded graphic into a renderable element with persisted src data.
+   */
   const handleGraphicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -98,6 +127,9 @@ export function ElementsPanel() {
     if (graphicInputRef.current) graphicInputRef.current.value = '';
   };
 
+  /**
+   * Adds a localized text overlay with the default element typography.
+   */
   const addTextElement = () => {
     const el: ElementSettings = {
       id: crypto.randomUUID(), type: 'text',
@@ -112,6 +144,9 @@ export function ElementsPanel() {
     setSelectedElementId(el.id);
   };
 
+  /**
+   * Adds a selected emoji as a scalable overlay element.
+   */
   const addEmojiElement = (emoji: string, name = 'Emoji') => {
     const el: ElementSettings = {
       id: crypto.randomUUID(), type: 'emoji',
@@ -126,6 +161,10 @@ export function ElementsPanel() {
     setSelectedElementId(el.id);
   };
 
+  /**
+   * Adds a Lucide icon element and asynchronously loads its SVG into an image so
+   * the Canvas renderer can draw it like other overlay graphics.
+   */
   const addIconElement = (iconName: string) => {
     const el: ElementSettings = {
       id: crypto.randomUUID(), type: 'icon',
@@ -152,11 +191,18 @@ export function ElementsPanel() {
       }).catch(() => {});
   };
 
+  /**
+   * Removes an overlay element and clears selection if it was active.
+   */
   const deleteElement = (id: string) => {
     updateScreenshot(selectedIndex, { elements: elements.filter((e) => e.id !== id) });
     if (selectedElementId === id) setSelectedElementId(null);
   };
 
+  /**
+   * Reorders an element within the render layer list; later entries draw above
+   * earlier entries within the same layer.
+   */
   const moveElement = (id: string, direction: 'up' | 'down') => {
     const idx = elements.findIndex((e) => e.id === id);
     if (idx === -1) return;
@@ -169,6 +215,9 @@ export function ElementsPanel() {
     updateScreenshot(selectedIndex, { elements: newElements });
   };
 
+  /**
+   * Resolves the text displayed for a localized text element in the current UI language.
+   */
   const getElementText = (el: ElementSettings) => {
     if (el.texts) return el.texts[currentLanguage] || el.texts['en'] || Object.values(el.texts).find(v => v) || el.text || '';
     return el.text || '';

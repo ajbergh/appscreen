@@ -1,3 +1,13 @@
+/**
+ * Shared state contracts for the React screenshot generator.
+ *
+ * These interfaces are intentionally close to the original vanilla `state`
+ * shape so project data can be migrated, serialized, and compared against the
+ * legacy app. Runtime-only image objects are represented beside their persisted
+ * data URL/source fields; persistence code is responsible for dropping live DOM
+ * objects before writing to IndexedDB.
+ */
+
 // ===== Core State Types =====
 
 export interface GradientStop {
@@ -163,6 +173,12 @@ export interface Screenshot {
   overrides: Record<string, unknown>;
 }
 
+/**
+ * Defaults applied when creating new blank/uploaded screenshots.
+ *
+ * Elements and popouts are included because the original app lets users promote
+ * the current screenshot styling into future screenshot defaults.
+ */
 export interface DefaultSettings {
   background: BackgroundSettings;
   screenshot: ScreenshotSettings;
@@ -195,6 +211,12 @@ export interface DeviceDimensions {
   height: number;
 }
 
+/**
+ * Canonical output sizes used by the export dropdown and render pipeline.
+ *
+ * Values are stored in final PNG pixels, not CSS preview pixels. Custom output
+ * sizes are handled separately by `getCanvasDimensions()`.
+ */
 export const DEVICE_DIMENSIONS: Record<string, DeviceDimensions> = {
   'iphone-6.9': { width: 1320, height: 2868 },
   'iphone-6.7': { width: 1290, height: 2796 },

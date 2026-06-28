@@ -1,4 +1,10 @@
-// Curated emoji data and Lucide icon name arrays for the Elements tab
+/*
+ * Curated emoji data and Lucide icon name arrays for the Elements tab.
+ *
+ * These globals are consumed by the React emoji/icon pickers as local catalog
+ * data. The icon picker can still fall back to its embedded popular list when
+ * this script is not loaded.
+ */
 
 const EMOJI_DATA = {
     popular: [

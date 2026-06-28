@@ -1,3 +1,10 @@
+/**
+ * Text overlay editor for headline and subheadline content.
+ *
+ * Text settings are stored per screenshot with language-keyed values and an
+ * optional per-language layout map. This panel edits the selected language's
+ * text, typography, style toggles, layout, and per-field translation modal.
+ */
 import { useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { FontPicker } from '../UI/FontPicker';
@@ -11,6 +18,9 @@ const LANGUAGE_FLAGS: Record<string, string> = {
   'no': '🇳🇴', 'fi': '🇫🇮', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦',
 };
 
+/**
+ * Renders headline/subheadline controls and text-layout controls.
+ */
 export function TextPanel() {
   const currentScreenshot = useAppStore((s) => s.getCurrentScreenshot());
   const setTextSetting = useAppStore((s) => s.setTextSetting);
@@ -54,6 +64,9 @@ export function TextPanel() {
     lineHeight: text.lineHeight || 110,
   };
 
+  /**
+   * Writes layout settings either globally or into the active language layout.
+   */
   const setLangSetting = (key: string, value: unknown) => {
     if (text.perLanguageLayout) {
       const newLangSettings = { ...text.languageSettings };

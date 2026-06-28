@@ -1,3 +1,12 @@
+/*
+ * Global AppScreen editor styles.
+ *
+ * The React refactor still uses the original class-based design system for the
+ * three-pane layout, canvas preview strip, modal surfaces, and inspector
+ * controls. Theme values are centralized as CSS variables so the settings modal
+ * can switch themes by updating `html[data-theme]`.
+ */
+
 * {
     margin: 0;
     padding: 0;

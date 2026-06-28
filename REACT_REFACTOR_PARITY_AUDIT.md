@@ -1,22 +1,25 @@
 # React Refactor Parity Audit
 
 > Source of truth: original vanilla-JS implementation — `app.js` (8,649 lines), `three-renderer.js` (1,323), `language-utils.js` (565), `magical-titles.js` (~460), `llm.js`, `styles.css` (3,528), and the committed `index.html` (`git show HEAD:index.html`, 1,977 lines).
-> Refactor under audit: `src/` (React + Zustand + TypeScript, ~2,358 lines across stores, hooks, canvas renderer, and components).
-> Method: seven parallel deep-dives, one per subsystem, each treating `app.js` as canonical. No application code was modified during this audit.
+> Refactor under audit: `src/` (React + Zustand + TypeScript, ~11,382 lines across stores, hooks, canvas renderer, components, and shared styles).
+> Method: seven parallel deep-dives, one per subsystem, each treating `app.js` as canonical. No application code was modified during the original audit.
+> Current status: the findings below are historical audit records. Use the **Implementation Progress** section as the current source of truth for completed fixes, verification, and remaining documented deviations.
 
 ---
 
 ## Summary
 
-The React refactor is a **substantial but incomplete** port. The core architecture is sound: a Zustand `appStore` mirrors the original `state` object, `renderer.ts` is a mostly-faithful translation of the 2D canvas pipeline, `useThreeJS.ts` reproduces the iPhone GLB load path and lighting, IndexedDB schema/version match, and the CSS file is essentially a **superset** of the original (most "missing class" worries are unfounded). Per-control wiring for Background/Device/Text/Elements/Popouts largely exists.
+The original audit found a **substantial but incomplete** React port. Since then, the implementation pass has addressed the critical output, localization, 3D, persistence, import/export, AI, direct-manipulation, bundled dependency, and font-picker issues tracked below. The sections after Implementation Progress remain useful as traceability records because each item preserves the original source comparison, risk, and intended fix.
 
 ## Implementation Progress
 
-**Status as of 2026-06-28:** Core output correctness, 3D export/render parity, key slider/range drift, persistence/data-safety fixes, project backup import/export, Magical Titles, Translate All, element translation, crop dragging, duplicate upload handling, Tauri import, theme fixes, bundled JSZip/Three.js dependencies, Text-tab font picker visibility/full fallback catalog, and build/browser verification have been implemented in React. All tracked checklist items below are marked complete; documented deviations are called out inline.
+**Status as of 2026-06-28:** Core output correctness, 3D export/render parity, key slider/range drift, persistence/data-safety fixes, project backup import/export, Magical Titles, Translate All, element translation, crop dragging, duplicate upload handling, Tauri import, theme fixes, bundled JSZip/Three.js dependencies, Text-tab font picker visibility/full fallback catalog, documentation refresh, and source comment audit have been implemented in React. All tracked checklist items below are marked complete; documented deviations are called out inline.
 
 **Verification:** `npm run build` passes after the implementation pass. A Playwright smoke check against `http://localhost:5174/` loads the app, renders meaningful content, shows no framework overlay, reports no console errors or failed requests, opens/closes Settings, adds a blank screenshot, and captures desktop/mobile screenshots. A follow-up Playwright check verifies the Text-tab font picker opens, shows 100 visible options, searches the local All-font fallback catalog, and updates the selected font preview.
 
-However, the refactor is **not 1:1**, and several gaps are severe enough to break primary workflows:
+**Documentation/comment pass:** `README.md`, `CLAUDE.md`, and this audit now describe the React/Vite architecture and current feature status. Every file under `src/` now starts with an accurate module-level comment, and exported components plus workflow helpers have detailed comments covering state ownership, persistence, rendering, import/export, localization, and AI-provider behavior. This pass was validated with `npx tsc -b` and `npm run build`; the build completed with only Vite's large single-bundle chunk warning.
+
+The historical audit initially identified the following severe gaps before the implementation pass:
 
 **Biggest risks**
 
@@ -27,7 +30,7 @@ However, the refactor is **not 1:1**, and several gaps are severe enough to brea
 5. **Silent output drift from slider range changes.** ~10 sliders have different `min/max` than the original (scale, X/Y position, rotations, text sizes, offset-Y, line-height). Same slider position → different pixels, and position presets that set values outside the new ranges (e.g. bleed presets at y=120/−20) can't round-trip.
 6. **Fragile persistence:** icon elements lose their image on reload, duplicated screenshots lose all images, project screenshot counts are always stale, `projectLanguages`/custom dimensions aren't in the auto-save dependency set, and a background holding a live `Image` can make the entire save silently throw.
 
-The refactor is closer to **70–80% feature-complete** for the static-2D path and **much less** for 3D, export fidelity, localization output, and direct-manipulation interactions. The sections below enumerate every finding with locations and fixes.
+Before the implementation pass, the refactor was estimated at **70–80% feature-complete** for the static-2D path and lower for 3D, export fidelity, localization output, and direct-manipulation interactions. The sections below enumerate the original findings with locations and fixes for traceability.
 
 ---
 

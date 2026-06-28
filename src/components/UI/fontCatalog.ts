@@ -1,3 +1,10 @@
+/**
+ * Offline fallback catalog for the FontPicker "All" category.
+ *
+ * The list is derived from the original vanilla app's curated Google Fonts
+ * fallback. It lets the React UI expose a broad font search result set even when
+ * the Google Fonts API is blocked, rate-limited, or unavailable.
+ */
 export const FALLBACK_GOOGLE_FONTS = [
   "ABeeZee",   "Abel",   "Abhaya Libre",   "Abril Fatface",
   "Aclonica",   "Acme",   "Actor",   "Adamina",

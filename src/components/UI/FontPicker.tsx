@@ -1,3 +1,11 @@
+/**
+ * Searchable font picker used by text controls and element controls.
+ *
+ * The picker exposes system fonts, a curated popular list, and a large local
+ * fallback catalog for the All tab. It loads Google Font stylesheets lazily only
+ * when a Google font is selected or previewed, so the dropdown remains usable in
+ * offline/sandboxed environments.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { FALLBACK_GOOGLE_FONTS } from './fontCatalog';
 
@@ -46,6 +54,9 @@ interface FontPickerProps {
   id?: string;
 }
 
+/**
+ * Renders a dropdown-style font selector and reports the CSS font-family value.
+ */
 export function FontPicker({ value, onChange, id }: FontPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [category, setCategory] = useState<'system' | 'popular' | 'all'>('popular');
@@ -69,7 +80,13 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
     return () => document.removeEventListener('click', handler);
   }, []);
 
-  // Load a Google Font dynamically
+  /**
+   * Loads a Google Fonts stylesheet and marks the family as previewable.
+   *
+   * Network failures are intentionally ignored because choosing the font-family
+   * value should still work with browser fallback fonts and persisted project
+   * data should not depend on a successful preview fetch.
+   */
   const loadGoogleFont = useCallback(async (fontName: string) => {
     if (loadedFonts.has(fontName)) return;
     try {
@@ -82,7 +99,12 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
     } catch {}
   }, [loadedFonts]);
 
-  // Get fonts for current category
+  /**
+   * Builds the visible option list for the current category and search text.
+   *
+   * The list is capped to 100 options to keep the right-panel dropdown fast and
+   * visually bounded, matching the original app's rendering behavior.
+   */
   const getFonts = () => {
     let fonts: { name: string; value: string; category: string }[] = [];
 
@@ -180,6 +202,9 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
   );
 }
 
+/**
+ * Extracts a human-readable family name from a CSS font-family value.
+ */
 function getFontDisplayName(fontValue: string): string {
   // Check system fonts
   const system = SYSTEM_FONTS.find(f => f.value === fontValue);
