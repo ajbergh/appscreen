@@ -119,6 +119,7 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
   const [category, setCategory] = useState<'system' | 'popular' | 'all'>('popular');
   const [search, setSearch] = useState('');
   const [loadedFonts, setLoadedFonts] = useState<Set<string>>(() => new Set(loadedGoogleFontFamilies));
+  const [loadingFonts, setLoadingFonts] = useState<Set<string>>(() => new Set(loadingGoogleFontFamilies.keys()));
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -182,8 +183,13 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
    * this picker's local loaded set after the font can be used for previews.
    */
   const loadGoogleFont = useCallback(async (fontName: string) => {
-    await ensureGoogleFont(fontName);
-    setLoadedFonts(new Set(loadedGoogleFontFamilies));
+    setLoadingFonts(new Set(loadingGoogleFontFamilies.keys()).add(fontName));
+    try {
+      await ensureGoogleFont(fontName);
+    } finally {
+      setLoadingFonts(new Set(loadingGoogleFontFamilies.keys()));
+      setLoadedFonts(new Set(loadedGoogleFontFamilies));
+    }
   }, []);
 
   /**
@@ -229,8 +235,8 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
       </div>
 
       <div className="font-picker-categories">
-        <button type="button" className={`font-category${category === 'system' ? ' active' : ''}`} onClick={() => setCategory('system')}>System</button>
         <button type="button" className={`font-category${category === 'popular' ? ' active' : ''}`} onClick={() => setCategory('popular')}>Popular</button>
+        <button type="button" className={`font-category${category === 'system' ? ' active' : ''}`} onClick={() => setCategory('system')}>System</button>
         <button type="button" className={`font-category${category === 'all' ? ' active' : ''}`} onClick={() => setCategory('all')}>All</button>
       </div>
 
@@ -238,6 +244,7 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
         {fonts.map((font) => {
           const isSelected = value === font.value || value.includes(font.name);
           const isLoaded = font.category === 'system' || loadedFonts.has(font.name);
+          const isLoading = font.category === 'google' && loadingFonts.has(font.name);
 
           return (
             <div
@@ -259,7 +266,9 @@ export function FontPicker({ value, onChange, id }: FontPickerProps) {
               <span className="font-option-name" style={{ fontFamily: isLoaded ? font.value : 'inherit' }}>
                 {font.name}
               </span>
-              <span className="font-option-category">{font.category}</span>
+              {isLoading
+                ? <span className="font-option-loading">Loading...</span>
+                : <span className="font-option-category">{font.category}</span>}
             </div>
           );
         })}

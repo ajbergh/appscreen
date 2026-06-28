@@ -253,11 +253,9 @@ export function ElementsPanel() {
                  el.type === 'emoji' ? <span className="emoji-thumb">{el.emoji}</span> :
                  el.type === 'icon' && el.image ? <img src={el.image.src} alt={el.name} style={{ padding: '4px', filter: 'var(--icon-thumb-filter, none)' }} /> : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 7h16" />
-                    <path d="M4 12h10" />
-                    <path d="M4 17h16" />
-                    <path d="M17 10v7" />
-                    <path d="M14.5 10h5" />
+                    <path d="M4 7V4h16v3" />
+                    <path d="M9 20h6" />
+                    <path d="M12 4v16" />
                   </svg>
                  )}
               </div>
@@ -336,10 +334,7 @@ export function ElementsPanel() {
               </div>
               <div className="control-group">
                 <label className="control-label">Font Size</label>
-                <div className="control-row">
-                  <input type="range" min="10" max="200" value={selectedElement.fontSize} onChange={(e) => updateElement(selectedElement.id, { fontSize: parseInt(e.target.value) })} />
-                  <span className="control-value">{selectedElement.fontSize}px</span>
-                </div>
+                <input type="number" min="12" max="300" value={selectedElement.fontSize} onChange={(e) => updateElement(selectedElement.id, { fontSize: parseInt(e.target.value) })} />
               </div>
               <div className="control-group">
                 <label className="control-label">Font Color</label>
@@ -369,15 +364,27 @@ export function ElementsPanel() {
                   <option value="laurel-simple-star">Laurel Simple + Star</option>
                   <option value="laurel-detailed">Laurel Detailed</option>
                   <option value="laurel-detailed-star">Laurel Detailed + Star</option>
-                  <option value="badge-circle">Badge Circle</option>
-                  <option value="badge-ribbon">Badge Ribbon</option>
+                  <option value="badge-circle">Circle Badge</option>
+                  <option value="badge-ribbon">Shield Badge</option>
                 </select>
               </div>
               {selectedElement.frame && selectedElement.frame !== 'none' && (
                 <>
                   <div className="control-group">
                     <label className="control-label">Frame Color</label>
-                    <input type="color" value={selectedElement.frameColor} onChange={(e) => updateElement(selectedElement.id, { frameColor: e.target.value })} className="color-input-small" />
+                    <div className="control-row">
+                      <input type="color" value={selectedElement.frameColor} onChange={(e) => updateElement(selectedElement.id, { frameColor: e.target.value })} className="color-input-small" />
+                      <input
+                        type="text"
+                        value={selectedElement.frameColor}
+                        onChange={(e) => {
+                          if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                            updateElement(selectedElement.id, { frameColor: e.target.value });
+                          }
+                        }}
+                        className="hex-input"
+                      />
+                    </div>
                   </div>
                   <div className="control-group">
                     <label className="control-label">Frame Scale</label>
@@ -395,12 +402,24 @@ export function ElementsPanel() {
             <>
               <div className="control-group">
                 <label className="control-label">Icon Color</label>
-                <input type="color" value={selectedElement.iconColor || '#ffffff'} onChange={(e) => updateElement(selectedElement.id, { iconColor: e.target.value })} className="color-input-small" />
+                <div className="control-row">
+                  <input type="color" value={selectedElement.iconColor || '#ffffff'} onChange={(e) => updateElement(selectedElement.id, { iconColor: e.target.value })} className="color-input-small" />
+                  <input
+                    type="text"
+                    value={selectedElement.iconColor || '#ffffff'}
+                    onChange={(e) => {
+                      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                        updateElement(selectedElement.id, { iconColor: e.target.value });
+                      }
+                    }}
+                    className="hex-input"
+                  />
+                </div>
               </div>
               <div className="control-group">
                 <label className="control-label">Stroke Width</label>
                 <div className="control-row">
-                  <input type="range" min="1" max="5" step="0.5" value={selectedElement.iconStrokeWidth || 2} onChange={(e) => updateElement(selectedElement.id, { iconStrokeWidth: parseFloat(e.target.value) })} />
+                  <input type="range" min="0.5" max="4" step="0.25" value={selectedElement.iconStrokeWidth || 2} onChange={(e) => updateElement(selectedElement.id, { iconStrokeWidth: parseFloat(e.target.value) })} />
                   <span className="control-value">{selectedElement.iconStrokeWidth || 2}</span>
                 </div>
               </div>
@@ -418,7 +437,7 @@ export function ElementsPanel() {
                   <div className="control-group">
                     <label className="control-label">Shadow Blur</label>
                     <div className="control-row">
-                      <input type="range" min="0" max="50" value={selectedElement.iconShadow.blur} onChange={(e) => updateElement(selectedElement.id, { iconShadow: { ...selectedElement.iconShadow!, blur: parseInt(e.target.value) } })} />
+                      <input type="range" min="0" max="100" value={selectedElement.iconShadow.blur} onChange={(e) => updateElement(selectedElement.id, { iconShadow: { ...selectedElement.iconShadow!, blur: parseInt(e.target.value) } })} />
                       <span className="control-value">{selectedElement.iconShadow.blur}px</span>
                     </div>
                   </div>
@@ -445,7 +464,19 @@ export function ElementsPanel() {
                   </div>
                   <div className="control-group">
                     <label className="control-label">Shadow Color</label>
-                    <input type="color" value={selectedElement.iconShadow.color} onChange={(e) => updateElement(selectedElement.id, { iconShadow: { ...selectedElement.iconShadow!, color: e.target.value } })} className="color-input-small" />
+                    <div className="control-row">
+                      <input type="color" value={selectedElement.iconShadow.color} onChange={(e) => updateElement(selectedElement.id, { iconShadow: { ...selectedElement.iconShadow!, color: e.target.value } })} className="color-input-small" />
+                      <input
+                        type="text"
+                        value={selectedElement.iconShadow.color}
+                        onChange={(e) => {
+                          if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                            updateElement(selectedElement.id, { iconShadow: { ...selectedElement.iconShadow!, color: e.target.value } });
+                          }
+                        }}
+                        className="hex-input"
+                      />
+                    </div>
                   </div>
                 </>
               )}

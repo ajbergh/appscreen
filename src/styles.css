@@ -184,8 +184,8 @@ html.tauri-app .right-sidebar {
 }
 
 .add-btn:hover {
-    border-color: var(--accent-color);
-    color: var(--accent-color);
+    border-color: var(--accent);
+    color: var(--accent);
     background: rgba(59, 130, 246, 0.05);
 }
 
@@ -969,14 +969,20 @@ input[type="range"]::-webkit-slider-thumb {
     display: block;
 }
 
+/*
+ * Parity with legacy three-renderer.js: the 3D container is never shown (the
+ * phone is composited onto the 2D #preview-canvas). It is force-hidden inline in
+ * CanvasArea; this rule keeps it non-interactive as a defense so it can never
+ * intercept canvas pointer events (element/popout drag, drag-to-rotate).
+ */
 #threejs-container {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 2;
-    pointer-events: auto;
+    z-index: 0;
+    pointer-events: none;
 }
 
 #threejs-container canvas {
@@ -3440,9 +3446,21 @@ input[type="range"]::-webkit-slider-thumb {
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    opacity: 1 !important;
-    visibility: visible !important;
+    opacity: 1;
+    visibility: visible;
     backdrop-filter: blur(4px);
+    /* Parity with legacy: fade the backdrop in on mount (React modals mount when
+       visible, so this runs once). */
+    animation: modal-overlay-fade 0.2s ease;
+}
+
+@keyframes modal-overlay-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .modal {
@@ -3549,30 +3567,12 @@ input[type="range"]::-webkit-slider-thumb {
     border-color: var(--accent);
 }
 
-/* Position Presets */
-.preset-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-    margin-top: 4px;
-}
-
-.preset-btn {
-    padding: 6px 4px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-size: 10px;
-    cursor: pointer;
-    transition: all 0.15s;
-    text-align: center;
-}
-
-.preset-btn:hover {
-    background: var(--accent-subtle);
-    border-color: var(--accent);
-}
+/*
+ * NOTE: the React position presets now use the legacy `.preset-dropdown` /
+ * `.preset-positions` / `.position-preset` classes (see DevicePanel). The old
+ * `.preset-grid { repeat(3,1fr) }` override was removed because it collided with
+ * the gradient-swatch `.preset-grid` (legacy 5-column) used by BackgroundPanel.
+ */
 
 /* Frame Color Swatches */
 .frame-color-swatch {

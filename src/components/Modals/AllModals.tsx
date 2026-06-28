@@ -101,7 +101,7 @@ export function ExportProgressModal({ isOpen, progress, status, detail }: {
   return (
     <div className="modal-overlay">
       <div className="modal" style={{ textAlign: 'center' }}>
-        <h3>{status === 'Complete!' ? 'Complete!' : 'Exporting Screenshots'}</h3>
+        <h3>Exporting Screenshots</h3>
         <div style={{ width: '100%', height: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', overflow: 'hidden', margin: '20px 0 12px' }}>
           <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '4px', width: `${progress}%`, transition: 'width 0.2s ease-out' }} />
         </div>
@@ -164,25 +164,35 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
    * persists the project.
    */
   const handleApply = () => {
+    // Legacy applyTranslations writes every target value unconditionally (so a
+    // field can be cleared), enables the subheadline path, and syncs element
+    // display text via getElementText().
     if (target === 'headline') {
       const newHeadlines = { ...screenshot.text.headlines };
       Object.entries(translations).forEach(([lang, text]) => {
-        if (text) newHeadlines[lang] = text;
+        newHeadlines[lang] = text;
       });
       updateScreenshot(selectedIndex, { text: { ...screenshot.text, headlines: newHeadlines } });
     } else if (target === 'subheadline') {
       const newSubheadlines = { ...screenshot.text.subheadlines };
       Object.entries(translations).forEach(([lang, text]) => {
-        if (text) newSubheadlines[lang] = text;
+        newSubheadlines[lang] = text;
       });
       updateScreenshot(selectedIndex, { text: { ...screenshot.text, subheadlineEnabled: true, subheadlines: newSubheadlines } });
     } else if (selectedElement) {
       const newTexts = { ...(selectedElement.texts || {}) };
       Object.entries(translations).forEach(([lang, text]) => {
-        if (text) newTexts[lang] = text;
+        newTexts[lang] = text;
       });
+      // Mirror legacy getElementText(el): current display language, then en,
+      // then first non-empty value, then existing text.
+      const displayText = newTexts[currentLanguage]
+        || newTexts.en
+        || Object.values(newTexts).find((v) => v)
+        || selectedElement.text
+        || '';
       const newElements = (screenshot.elements || []).map((el: any) =>
-        el.id === selectedElement.id ? { ...el, text: newTexts[currentLanguage] || newTexts.en || el.text, texts: newTexts } : el
+        el.id === selectedElement.id ? { ...el, text: displayText, texts: newTexts } : el
       );
       updateScreenshot(selectedIndex, { elements: newElements });
     }
@@ -207,31 +217,37 @@ export function TranslateModal({ isOpen, onClose, target, elementId, screenshots
 
     const model = localStorage.getItem(providerConfig.modelStorageKey) || providerConfig.defaultModel;
 
-    setAiTranslating(true);
-    setAiStatus('Translating...');
-
     const targets = modalLanguages.filter(l => l !== sourceLang);
     if (targets.length === 0) {
-      setAiTranslating(false);
       setAiStatus('Add more languages to translate to');
       return;
     }
 
+    setAiTranslating(true);
+    setAiStatus(`Translating to ${targets.length} language(s) with ${providerConfig.name}...`);
+
     try {
+      // Exact legacy aiTranslateAll prompt (app.js ~5366-5384).
       const targetLangNames = targets.map((lang) => `${LANGUAGE_NAMES[lang] || lang} (${lang})`).join(', ');
-      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate this ${targetLabel} from ${LANGUAGE_NAMES[sourceLang] || sourceLang} to these languages: ${targetLangNames}.
+      const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate the following text from ${LANGUAGE_NAMES[sourceLang] || sourceLang} to these languages: ${targetLangNames}.
 
-Rules:
-- Keep every translation concise, punchy, marketing-focused, and culturally natural.
-- Keep roughly the same length as the source because it must fit on app screenshots.
-- Preserve product names, placeholders, emoji, punctuation intent, and line breaks.
-- Return only JSON. Do not include markdown or commentary.
+The text is a short marketing headline/tagline for an app that must fit on a screenshot, so keep translations:
+- SIMILAR LENGTH to the original - do NOT make it longer, as it must fit on screen
+- Concise and punchy
+- Marketing-focused and compelling
+- Culturally appropriate for each target market
+- Natural-sounding in each language
 
-Source:
-${JSON.stringify(sourceText)}
+IMPORTANT: The translated text will be displayed on app screenshots with limited space. If the source text is short, the translation MUST also be short. Prioritize brevity over literal accuracy.
 
-Return ONLY a valid JSON object mapping language codes to translations, like:
-{"de":"...","fr":"..."}`;
+Source text (${LANGUAGE_NAMES[sourceLang] || sourceLang}):
+"${sourceText}"
+
+Respond ONLY with a valid JSON object mapping language codes to translations. Do not include any other text.
+Example format:
+{"de": "German translation", "fr": "French translation"}
+
+Translate to these language codes: ${targets.join(', ')}`;
       const result = cleanJsonResponse(await callTextProvider(provider, apiKey, model, prompt));
       let completed = 0;
       targets.forEach((lang) => {
@@ -240,9 +256,16 @@ Return ONLY a valid JSON object mapping language codes to translations, like:
           setTranslations(prev => ({ ...prev, [lang]: result[lang] }));
         }
       });
-      setAiStatus(completed > 0 ? `Successfully translated to ${completed} languages!` : 'Translation failed. Check your API key.');
+      setAiStatus(completed > 0 ? `✓ Translated to ${completed} language(s)` : 'Translation failed. Check your API key.');
     } catch (e: any) {
-      setAiStatus(e?.message === 'AI_UNAVAILABLE' ? 'Invalid API key. Update it in Settings.' : `Translation failed: ${e?.message || e}`);
+      const msg = e?.message || '';
+      if (msg === 'Failed to fetch') {
+        setAiStatus('Connection failed. Check your API key in Settings.');
+      } else if (msg === 'AI_UNAVAILABLE' || msg.includes('401') || msg.includes('403')) {
+        setAiStatus('Invalid API key. Update it in Settings (gear icon).');
+      } else {
+        setAiStatus(`Translation failed: ${msg || e}`);
+      }
     } finally {
       setAiTranslating(false);
     }
@@ -288,7 +311,7 @@ Return ONLY a valid JSON object mapping language codes to translations, like:
         >
           {aiTranslating ? '⟳' : '✨'} {aiTranslating ? 'Translating...' : 'Auto-translate with AI'}
         </button>
-        {aiStatus && <p style={{ marginTop: '8px', fontSize: '12px', color: aiStatus.includes('fail') ? '#ff453a' : 'var(--text-secondary)', textAlign: 'center' }}>{aiStatus}</p>}
+        {aiStatus && <p style={{ marginTop: '8px', fontSize: '12px', color: (aiStatus.includes('fail') || aiStatus.includes('Invalid') || aiStatus.includes('Connection')) ? '#ff453a' : 'var(--text-secondary)', textAlign: 'center' }}>{aiStatus}</p>}
 
         <div className="modal-buttons" style={{ marginTop: '16px' }}>
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
@@ -315,12 +338,15 @@ export function TranslateAllModal({ isOpen, onClose }: { isOpen: boolean; onClos
 
   if (!isOpen) return null;
 
+  // Legacy textsToTranslate ordering: per screenshot, headline first then
+  // subheadline. The numeric position in this array is the response key the AI
+  // returns translations under (legacy translations[index]).
   const sourceItems = screenshots.flatMap((screenshot, index) => {
-    const items: Array<{ id: string; index: number; field: 'headline' | 'subheadline'; text: string }> = [];
+    const items: Array<{ index: number; field: 'headline' | 'subheadline'; text: string }> = [];
     const headline = screenshot.text?.headlines?.[sourceLang]?.trim();
     const subheadline = screenshot.text?.subheadlines?.[sourceLang]?.trim();
-    if (headline) items.push({ id: `${index}:headline`, index, field: 'headline', text: headline });
-    if (subheadline) items.push({ id: `${index}:subheadline`, index, field: 'subheadline', text: subheadline });
+    if (headline) items.push({ index, field: 'headline', text: headline });
+    if (subheadline) items.push({ index, field: 'subheadline', text: subheadline });
     return items;
   });
   const targetLangs = projectLanguages.filter((lang) => lang !== sourceLang);
@@ -337,32 +363,63 @@ export function TranslateAllModal({ isOpen, onClose }: { isOpen: boolean; onClos
     if (sourceItems.length === 0 || targetLangs.length === 0) { setStatus('No source text or target languages found.'); return; }
     const model = localStorage.getItem(providerConfig.modelStorageKey) || providerConfig.defaultModel;
     setWorking(true);
-    setStatus(`Translating ${sourceItems.length} text(s)...`);
+    setStatus(`Sending to AI... (${sourceItems.length} texts to ${targetLangs.length} languages using ${providerConfig.name})`);
     try {
+      // Exact legacy grouped prompt (app.js ~5758-5780). Response is keyed by the
+      // numeric text index [N] shown in the context block.
       const targetLangNames = targetLangs.map((lang) => `${LANGUAGE_NAMES[lang] || lang} (${lang})`).join(', ');
-      const groupedItems = sourceItems.map((item) => {
-        const screenshotNumber = item.index + 1;
-        const fieldLabel = item.field === 'headline' ? 'headline' : 'subheadline';
-        return `${item.id} (Screenshot ${screenshotNumber} ${fieldLabel}): ${JSON.stringify(item.text)}`;
-      }).join('\n');
+
+      // Group texts by screenshot for a context-aware prompt, recording the
+      // numeric index assigned to each headline/subheadline.
+      const screenshotGroups: Record<number, { headline: string | null; subheadline: string | null; indices: { headline?: number; subheadline?: number } }> = {};
+      sourceItems.forEach((item, i) => {
+        if (!screenshotGroups[item.index]) {
+          screenshotGroups[item.index] = { headline: null, subheadline: null, indices: {} };
+        }
+        screenshotGroups[item.index][item.field] = item.text;
+        screenshotGroups[item.index].indices[item.field] = i;
+      });
+
+      let contextualTexts = '';
+      Object.keys(screenshotGroups).map(Number).sort((a, b) => a - b).forEach((screenshotIdx) => {
+        const group = screenshotGroups[screenshotIdx];
+        contextualTexts += `\nScreenshot ${screenshotIdx + 1}:\n`;
+        if (group.headline !== null) {
+          contextualTexts += `  [${group.indices.headline}] Headline: "${group.headline}"\n`;
+        }
+        if (group.subheadline !== null) {
+          contextualTexts += `  [${group.indices.subheadline}] Subheadline: "${group.subheadline}"\n`;
+        }
+      });
+
       const prompt = `You are a professional translator for App Store screenshot marketing copy. Translate the following texts from ${LANGUAGE_NAMES[sourceLang] || sourceLang} to these languages: ${targetLangNames}.
 
-Rules:
-- Keep translations concise, punchy, marketing-focused, and culturally natural.
-- Keep each translation close to the source length because it must fit on app screenshots.
-- Preserve product names, placeholders, emoji, punctuation intent, and line breaks.
-- Return only JSON. Do not include markdown or commentary.
+CONTEXT: These are marketing texts for app store screenshots. Each screenshot has a headline and/or subheadline that work together as a pair. The subheadline typically elaborates on or supports the headline. When translating, ensure:
+- Headlines and subheadlines on the same screenshot remain thematically consistent
+- Translations across all screenshots maintain a cohesive marketing voice
+- SIMILAR LENGTH to the originals - do NOT make translations longer, as they must fit on screen
+- Marketing-focused and compelling language
+- Culturally appropriate for each target market
+- Natural-sounding in each language
 
-Return ONLY valid JSON in this exact shape:
-{"0:headline":{"de":"...","fr":"..."}}
+IMPORTANT: The translated text will be displayed on app screenshots with limited space. If the source text is short, the translation MUST also be short. Prioritize brevity over literal accuracy.
 
 Source texts (${LANGUAGE_NAMES[sourceLang] || sourceLang}):
-${groupedItems}`;
+${contextualTexts}
+
+Respond ONLY with a valid JSON object. The structure should be:
+{
+  "0": {"de": "German translation", "fr": "French translation", ...},
+  "1": {"de": "German translation", "fr": "French translation", ...}
+}
+
+Where the keys (0, 1, etc.) correspond to the text indices [N] shown above.
+Translate to these language codes: ${targetLangs.join(', ')}`;
       const translations = cleanJsonResponse(await callTextProvider(provider, apiKey, model, prompt));
       const byScreenshot = new Map<number, any>();
       let appliedCount = 0;
-      sourceItems.forEach((item) => {
-        const translated = translations[item.id] || {};
+      sourceItems.forEach((item, index) => {
+        const translated = translations[index] || translations[String(index)] || {};
         if (!byScreenshot.has(item.index)) byScreenshot.set(item.index, { ...screenshots[item.index].text });
         const text = byScreenshot.get(item.index);
         const key = item.field === 'headline' ? 'headlines' : 'subheadlines';
@@ -377,10 +434,18 @@ ${groupedItems}`;
       });
       byScreenshot.forEach((text, index) => updateScreenshot(index, { text }));
       saveState();
+      // Legacy uses a blocking success alert; keep the result visible rather
+      // than auto-closing on a timer.
       setStatus(`Successfully translated ${appliedCount} text(s)!`);
-      window.setTimeout(onClose, 700);
     } catch (err: any) {
-      setStatus(err?.message === 'AI_UNAVAILABLE' ? 'Invalid or unavailable API key/model.' : `Translation failed: ${err?.message || err}`);
+      const msg = err?.message || '';
+      if (msg === 'Failed to fetch') {
+        setStatus('Connection failed. Check your API key in Settings.');
+      } else if (msg === 'AI_UNAVAILABLE' || msg.includes('401') || msg.includes('403')) {
+        setStatus('Invalid API key. Update it in Settings (gear icon).');
+      } else {
+        setStatus(`Translation failed: ${msg || err}`);
+      }
     } finally {
       setWorking(false);
     }
@@ -402,7 +467,7 @@ ${groupedItems}`;
           <div>Texts to translate: {sourceItems.length}</div>
           <div>Target languages: {targetLangs.length}</div>
         </div>
-        {status && <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{status}</p>}
+        {status && <p style={{ fontSize: '12px', color: (status.includes('failed') || status.includes('Invalid') || status.includes('Connection')) ? '#ff453a' : 'var(--text-secondary)' }}>{status}</p>}
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
           <button className="modal-btn primary" disabled={working || sourceItems.length === 0 || targetLangs.length === 0 || projectLanguages.length < 2} onClick={handleTranslate}>{working ? 'Translating...' : 'Translate'}</button>
@@ -481,6 +546,8 @@ export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [sourceLang, setSourceLang] = useState(projectLanguages[0] || 'en');
   const [status, setStatus] = useState('');
   const [working, setWorking] = useState(false);
+  const [progressStatus, setProgressStatus] = useState('');
+  const [progressDetail, setProgressDetail] = useState('');
 
   if (!isOpen) return null;
 
@@ -489,11 +556,13 @@ export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClo
    * and writes returned title/subtitle pairs onto each screenshot.
    */
   const handleGenerate = async () => {
+    // Legacy pre-flight validation (magical-titles.js ~244-274): screenshots
+    // first, then API key, both as blocking alerts.
+    if (screenshots.length === 0) { setStatus('Please add some screenshots first.'); return; }
     const provider = (localStorage.getItem('aiProvider') || 'anthropic') as keyof typeof LLM_PROVIDERS;
     const providerConfig = LLM_PROVIDERS[provider];
     const apiKey = localStorage.getItem(providerConfig.storageKey) || '';
-    if (!apiKey) { setStatus('Add your API key in Settings first.'); return; }
-    if (screenshots.length === 0) { setStatus('Add screenshots before generating titles.'); return; }
+    if (!apiKey) { setStatus('Please configure your AI API key in Settings first.'); return; }
     const model = localStorage.getItem(providerConfig.modelStorageKey) || providerConfig.defaultModel;
     const images = screenshots
       .map((screenshot) => {
@@ -505,27 +574,50 @@ export function MagicalTitlesModal({ isOpen, onClose }: { isOpen: boolean; onClo
       })
       .map(parseDataUrl)
       .filter(Boolean) as Array<{ mimeType: string; base64: string }>;
-    if (!images.length) { setStatus('No screenshot images found.'); return; }
+    if (!images.length) { setStatus('No screenshot images found. Please upload some screenshots first.'); return; }
+    const langName = LANGUAGE_NAMES[sourceLang] || sourceLang;
     setWorking(true);
-    setStatus(`Analyzing ${images.length} screenshots...`);
+    setStatus('');
+    // MF-4: phased progress overlay mirroring legacy updateStatus() calls.
+    setProgressStatus('Sending screenshots to AI...');
+    setProgressDetail(`Using ${providerConfig.name}`);
     try {
-      const langName = LANGUAGE_NAMES[sourceLang] || sourceLang;
-      const prompt = `You are an expert App Store marketing copywriter. Analyze these ${images.length} app screenshots in order and create unique App Store screenshot titles in ${langName}.
+      // Exact legacy prompt (magical-titles.js ~318-346).
+      const prompt = `You are an expert App Store marketing copywriter. Analyze these ${images.length} app screenshots and create compelling marketing titles.
 
-Rules:
-- Screenshot 1 should communicate the main value proposition.
-- Each later screenshot should focus on the most visible feature or benefit in that image.
-- Headlines must be very short, ideally 2-4 words.
-- Subheadlines must be short, ideally 4-8 words.
-- Avoid repeating the same idea across screenshots.
-- Use natural, conversion-focused ${langName} marketing copy.
-- If a subheadline is not useful for a screenshot, return an empty string for it.
-- Return only JSON. Do not include markdown or commentary.
+The screenshots are shown in order (1 through ${images.length}). Study what the app does and identify:
+1. The main purpose and value proposition
+2. The user problem it solves
+3. Key features visible in each screen
 
-Return ONLY valid JSON:
-{"0":{"headline":"...","subheadline":"..."}}
-`;
-      const titles = cleanJsonResponse(await callVisionProvider(provider, apiKey, model, images, prompt));
+CRITICAL: Screenshot 1's headline MUST focus on the main value proposition - what problem does this app solve for users? This is the most important title.
+
+LENGTH REQUIREMENTS - THIS IS VERY IMPORTANT:
+- headline: VERY SHORT, maximum 2-4 words. Punchy, memorable, benefit-focused.
+- subheadline: SHORT, maximum 4-8 words. Expands on the headline.
+
+UNIQUENESS - VERY IMPORTANT:
+- Each screenshot MUST have a UNIQUE headline and subheadline
+- Do NOT repeat or reuse similar titles across screenshots
+- Each title should highlight a DIFFERENT feature or benefit
+
+Examples of good headlines: "Track Every Expense", "Sleep Better Tonight", "Never Forget Again"
+Examples of good subheadlines: "Automatic expense categorization and insights", "Science-backed sleep improvement", "Smart reminders that actually work"
+
+Return ONLY valid JSON in this exact format (no markdown, no explanation):
+{
+    "0": { "headline": "...", "subheadline": "..." },
+    "1": { "headline": "...", "subheadline": "..." }
+}
+
+Where the keys are 0-indexed screenshot numbers.
+Write all titles in ${langName}.`;
+      const responseText = await callVisionProvider(provider, apiKey, model, images, prompt);
+      setProgressStatus('Processing response...');
+      setProgressDetail('Parsing generated titles');
+      const titles = cleanJsonResponse(responseText);
+      setProgressStatus('Applying titles...');
+      setProgressDetail('Updating screenshots');
       screenshots.forEach((screenshot, index) => {
         const title = titles[String(index)];
         if (!title) return;
@@ -542,12 +634,20 @@ Return ONLY valid JSON:
         });
       });
       saveState();
-      setStatus('Titles applied.');
-      onClose();
-    } catch (err: any) {
-      setStatus(err?.message === 'AI_UNAVAILABLE' ? 'Invalid or unavailable API key/model.' : `Generation failed: ${err?.message || err}`);
-    } finally {
       setWorking(false);
+      setProgressStatus('');
+      setStatus(`Generated titles for ${Object.keys(titles).length} screenshots in ${langName}!`);
+    } catch (err: any) {
+      setWorking(false);
+      setProgressStatus('');
+      // Legacy error branches (magical-titles.js ~445-457).
+      if (err?.message === 'AI_UNAVAILABLE') {
+        setStatus('AI service unavailable. Please check your API key in Settings.');
+      } else if (err instanceof SyntaxError) {
+        setStatus('Failed to parse AI response. Please try again.');
+      } else {
+        setStatus(`Error generating titles: ${err?.message || err}`);
+      }
     }
   };
 
@@ -565,12 +665,22 @@ Return ONLY valid JSON:
         <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
           Screenshots: {screenshots.length}
         </div>
-        {status && <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{status}</p>}
+        {status && <p style={{ fontSize: '12px', color: (status.includes('Error') || status.includes('Failed') || status.includes('unavailable') || status.includes('Please')) ? '#ff453a' : 'var(--text-secondary)' }}>{status}</p>}
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
           <button className="modal-btn primary" disabled={working} onClick={handleGenerate}>{working ? 'Generating...' : 'Generate'}</button>
         </div>
       </div>
+      {working && progressStatus && (
+        <div className="modal-overlay visible" style={{ zIndex: 10001 }}>
+          <div className="modal" style={{ textAlign: 'center', minWidth: '320px' }}>
+            <h3 style={{ textAlign: 'center' }}>Generating Magical Titles...</h3>
+            <div style={{ margin: '16px auto', width: '32px', height: '32px', border: '3px solid var(--bg-tertiary)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <p style={{ color: 'var(--text-secondary)', margin: '8px 0 0' }}>{progressStatus}</p>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: '12px', margin: '4px 0 0' }}>{progressDetail}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -638,7 +748,7 @@ export function ScreenshotTranslationsModal({ isOpen, onClose, screenshots, sele
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px', textAlign: 'left' }}>
         <h3 style={{ textAlign: 'center' }}>Screenshot Translations</h3>
         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '16px' }}>
-          Manage language-specific images for this screenshot.
+          Upload localized versions of this screenshot for each language.
         </p>
 
         <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleUpload} />
@@ -691,7 +801,7 @@ export function EmojiPicker({ isOpen, onClose, onSelect }: {
   const [category, setCategory] = useState('popular');
 
   const EMOJI_CATEGORIES: Record<string, string[]> = {
-    popular: ['⭐', '❤️', '🔥', '✨', '🎉', '👍', '🚀', '💯', '🎯', '💡', '🌟', '💪', '🎨', '🔥', '❤️', '😊', '🥳', '👏', '🙌', '💎'],
+    popular: ['⭐', '❤️', '🔥', '✨', '🎉', '👍', '🚀', '💯', '🎯', '💡', '🌟', '💪', '🎨', '😊', '🥳', '👏', '🙌', '💎'],
     smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐'],
     objects: ['📱', '💻', '⌨️', '🖥️', '🖨️', '📷', '📹', '🎥', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '⏱️', '⏲️', '⏰', '🕰️', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '💎', '🔑', '🗝️', '🔨', '⚒️', '🛠️', '⛏️', '🔧', '🔩', '⚙️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '🏺'],
     symbols: ['✅', '❌', '⭕', '❗', '❓', '‼️', '⁉️', '💯', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⚪', '🟤', '🔶', '🔷', '🔸', '🔹', '▪️', '▫️', '◾', '◽', '⬛', '⬜', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🟫', '🔈', '🔉', '🔊', '🔔', '🔕', '📣', '📢', '💬', '💭', '🗯️', '♠️', '♣️', '♥️', '♦️', '🃏', '🀄', '🎴'],
@@ -702,15 +812,18 @@ export function EmojiPicker({ isOpen, onClose, onSelect }: {
   };
 
   const bundledEmojiData = (window as any).EMOJI_DATA as Record<string, Array<{ emoji: string; name: string; keywords?: string[] }>> | undefined;
+  // Dedupe globally across categories so flattened search results never repeat
+  // an emoji (e.g. 🔥/❤️ appearing in both popular and another category). The
+  // first category an emoji appears in keeps it.
+  const globallySeen = new Set<string>();
   const emojiData = bundledEmojiData || Object.fromEntries(
     Object.entries(EMOJI_CATEGORIES).map(([cat, emojis]) => {
-      const seen = new Set<string>();
       return [
         cat,
         emojis
           .filter((emoji) => {
-            if (seen.has(emoji)) return false;
-            seen.add(emoji);
+            if (globallySeen.has(emoji)) return false;
+            globallySeen.add(emoji);
             return true;
           })
           .map((emoji) => ({ emoji, name: `${cat} emoji`, keywords: [cat] })),
@@ -794,9 +907,21 @@ export function IconPicker({ isOpen, onClose, onSelect }: {
   }, [isOpen, category]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 150);
+    // Legacy debounces icon search at 200ms (app.js ~8516).
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 200);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  // Resolve the effective theme to color the monochrome Lucide SVGs: the static
+  // icons render as black strokes, so we only invert them when the app is in
+  // dark mode (explicit data-theme="dark", or auto/OS dark preference).
+  const isDarkTheme = (() => {
+    if (typeof document === 'undefined') return true;
+    const attr = document.documentElement.getAttribute('data-theme');
+    if (attr === 'dark') return true;
+    if (attr === 'light') return false;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
+  })();
 
   const filteredIcons = debouncedSearch
     ? (allIcons.length ? allIcons : icons).filter(i => i.toLowerCase().includes(debouncedSearch))
@@ -835,7 +960,8 @@ export function IconPicker({ isOpen, onClose, onSelect }: {
               <img
                 src={`https://unpkg.com/lucide-static@latest/icons/${iconName}.svg`}
                 alt={iconName}
-                style={{ width: '24px', height: '24px', filter: 'invert(1)' }}
+                loading="lazy"
+                style={{ width: '24px', height: '24px', filter: isDarkTheme ? 'invert(1)' : 'none' }}
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
               />
               <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>{iconName}</span>

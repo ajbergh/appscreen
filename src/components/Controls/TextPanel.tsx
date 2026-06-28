@@ -10,14 +10,6 @@ import { useAppStore } from '../../stores/appStore';
 import { FontPicker } from '../UI/FontPicker';
 import { TranslateModal } from '../Modals/AllModals';
 
-const LANGUAGE_FLAGS: Record<string, string> = {
-  'en': '🇺🇸', 'en-gb': '🇬🇧', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸',
-  'it': '🇮🇹', 'pt': '🇵🇹', 'pt-br': '🇧🇷', 'nl': '🇳🇱', 'ru': '🇷🇺',
-  'ja': '🇯🇵', 'ko': '🇰🇷', 'zh': '🇨🇳', 'zh-tw': '🇹🇼', 'ar': '🇸🇦',
-  'hi': '🇮🇳', 'tr': '🇹🇷', 'pl': '🇵🇱', 'sv': '🇸🇪', 'da': '🇩🇰',
-  'no': '🇳🇴', 'fi': '🇫🇮', 'th': '🇹🇭', 'vi': '🇻🇳', 'id': '🇮🇩', 'uk': '🇺🇦',
-};
-
 /**
  * Renders headline/subheadline controls and text-layout controls.
  */
@@ -28,7 +20,6 @@ export function TextPanel() {
   const selectedIndex = useAppStore((s) => s.selectedIndex);
   const screenshots = useAppStore((s) => s.screenshots);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
-  const projectLanguages = useAppStore((s) => s.projectLanguages);
 
   const [translateModalOpen, setTranslateModalOpen] = useState(false);
   const [translateTarget, setTranslateTarget] = useState<'headline' | 'subheadline'>('headline');
@@ -133,37 +124,26 @@ export function TextPanel() {
 
         {text.headlineEnabled !== false && (
           <>
-            {/* Headline language selector if multiple languages */}
-            {projectLanguages.length > 1 && (
-              <div className="control-row" style={{ gap: '4px', flexWrap: 'wrap' }}>
-                {projectLanguages.map((lang) => (
-                  <button
-                    key={lang}
-                    className={`lang-btn${headlineLang === lang ? ' active' : ''}`}
-                    onClick={() => writeTextSettings({ currentHeadlineLang: lang, currentLayoutLang: lang })}
-                    title={lang}
-                    style={{
-                      padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border-color)',
-                      background: headlineLang === lang ? 'var(--accent)' : 'var(--bg-tertiary)',
-                      color: headlineLang === lang ? 'white' : 'var(--text-secondary)',
-                      borderRadius: '4px', cursor: 'pointer',
-                    }}
-                  >
-                    {LANGUAGE_FLAGS[lang] || '🌐'} {lang.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <textarea
-              value={currentHeadline}
-              onChange={(e) => {
-                setTextSetting('headlines', { ...text.headlines, [headlineLang]: e.target.value });
-              }}
-              placeholder="Enter headline..."
-              rows={2}
-              className="text-input"
-            />
+            <div className="textarea-with-button">
+              <textarea
+                value={currentHeadline}
+                onChange={(e) => {
+                  setTextSetting('headlines', { ...text.headlines, [headlineLang]: e.target.value });
+                }}
+                placeholder="Enter headline..."
+                rows={2}
+                className="text-input"
+              />
+              <button
+                className="magic-translate-btn"
+                title="Translate to all languages"
+                onClick={() => { setTranslateTarget('headline'); setTranslateModalOpen(true); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6" />
+                </svg>
+              </button>
+            </div>
 
             <div className="control-row">
               <label>Font</label>
@@ -204,14 +184,6 @@ export function TextPanel() {
               <button className={text.headlineUnderline ? 'active' : ''} onClick={() => setTextSetting('headlineUnderline', !text.headlineUnderline)}><u>U</u></button>
               <button className={text.headlineStrikethrough ? 'active' : ''} onClick={() => setTextSetting('headlineStrikethrough', !text.headlineStrikethrough)}><s>S</s></button>
             </div>
-
-            <button
-              className="add-btn-small"
-              style={{ marginTop: '6px' }}
-              onClick={() => { setTranslateTarget('headline'); setTranslateModalOpen(true); }}
-            >
-              ✨ Translate Headline
-            </button>
           </>
         )}
       </div>
@@ -230,37 +202,26 @@ export function TextPanel() {
 
         {text.subheadlineEnabled && (
           <>
-            {/* Subheadline language selector if multiple languages */}
-            {projectLanguages.length > 1 && (
-              <div className="control-row" style={{ gap: '4px', flexWrap: 'wrap' }}>
-                {projectLanguages.map((lang) => (
-                  <button
-                    key={lang}
-                    className={`lang-btn${subheadlineLang === lang ? ' active' : ''}`}
-                    onClick={() => writeTextSettings({ currentSubheadlineLang: lang, currentLayoutLang: lang })}
-                    title={lang}
-                    style={{
-                      padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border-color)',
-                      background: subheadlineLang === lang ? 'var(--accent)' : 'var(--bg-tertiary)',
-                      color: subheadlineLang === lang ? 'white' : 'var(--text-secondary)',
-                      borderRadius: '4px', cursor: 'pointer',
-                    }}
-                  >
-                    {LANGUAGE_FLAGS[lang] || '🌐'} {lang.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <textarea
-              value={currentSubheadline}
-              onChange={(e) => {
-                setTextSetting('subheadlines', { ...text.subheadlines, [subheadlineLang]: e.target.value });
-              }}
-              placeholder="Enter subheadline..."
-              rows={2}
-              className="text-input"
-            />
+            <div className="textarea-with-button">
+              <textarea
+                value={currentSubheadline}
+                onChange={(e) => {
+                  setTextSetting('subheadlines', { ...text.subheadlines, [subheadlineLang]: e.target.value });
+                }}
+                placeholder="Enter subheadline..."
+                rows={2}
+                className="text-input"
+              />
+              <button
+                className="magic-translate-btn"
+                title="Translate to all languages"
+                onClick={() => { setTranslateTarget('subheadline'); setTranslateModalOpen(true); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6" />
+                </svg>
+              </button>
+            </div>
 
             <div className="control-row">
               <label>Font</label>
@@ -308,16 +269,21 @@ export function TextPanel() {
               <button className={text.subheadlineUnderline ? 'active' : ''} onClick={() => setTextSetting('subheadlineUnderline', !text.subheadlineUnderline)}><u>U</u></button>
               <button className={text.subheadlineStrikethrough ? 'active' : ''} onClick={() => setTextSetting('subheadlineStrikethrough', !text.subheadlineStrikethrough)}><s>S</s></button>
             </div>
-
-            <button
-              className="add-btn-small"
-              style={{ marginTop: '6px' }}
-              onClick={() => { setTranslateTarget('subheadline'); setTranslateModalOpen(true); }}
-            >
-              ✨ Translate Subheadline
-            </button>
           </>
         )}
+      </div>
+
+      {/* Per-language layout toggle */}
+      <div className="control-group">
+        <div className="toggle-row">
+          <label className="control-label">Per-language layout</label>
+          <div
+            className={`toggle${text.perLanguageLayout ? ' active' : ''}`}
+            onClick={() => setTextSetting('perLanguageLayout', !text.perLanguageLayout)}
+          >
+            <div className="toggle-handle" />
+          </div>
+        </div>
       </div>
 
       {/* Position */}
@@ -352,20 +318,6 @@ export function TextPanel() {
             onChange={(e) => setLangSetting('lineHeight', parseInt(e.target.value))} />
           <span className="control-value">{effectiveLineHeight}%</span>
         </div>
-      </div>
-
-      {/* Per-language layout toggle */}
-      <div className="control-group">
-        <div className="toggle-row">
-          <label className="control-label">Per-Language Layout</label>
-          <div
-            className={`toggle${text.perLanguageLayout ? ' active' : ''}`}
-            onClick={() => setTextSetting('perLanguageLayout', !text.perLanguageLayout)}
-          >
-            <div className="toggle-handle" />
-          </div>
-        </div>
-
       </div>
 
       {/* Real Translate Modal */}

@@ -7,15 +7,35 @@
  */
 import { useAppStore } from '../../stores/appStore';
 
-const POSITION_PRESETS = [
-  { id: 'centered', label: 'Centered', scale: 70, x: 50, y: 50, rotation: 0 },
-  { id: 'bleed-bottom', label: 'Bleed Bottom', scale: 85, x: 50, y: 120, rotation: 0 },
-  { id: 'bleed-top', label: 'Bleed Top', scale: 85, x: 50, y: -20, rotation: 0 },
-  { id: 'float-center', label: 'Float Center', scale: 60, x: 50, y: 50, rotation: 0 },
-  { id: 'tilt-left', label: 'Tilt Left', scale: 65, x: 50, y: 60, rotation: -8 },
-  { id: 'tilt-right', label: 'Tilt Right', scale: 65, x: 50, y: 60, rotation: 8 },
-  { id: 'perspective', label: 'Perspective', scale: 65, x: 50, y: 50, rotation: 0, perspective: 15 },
-  { id: 'float-bottom', label: 'Float Bottom', scale: 55, x: 50, y: 70, rotation: 0 },
+// Each preset mirrors the legacy `.position-preset` button: an SVG device-position
+// diagram (recovered from the vanilla index.html) plus a label, applied via the
+// scale/x/y/rotation/perspective store settings.
+const POSITION_PRESETS: {
+  id: string;
+  label: string;
+  scale: number;
+  x: number;
+  y: number;
+  rotation: number;
+  perspective?: number;
+  svg: JSX.Element;
+}[] = [
+  { id: 'centered', label: 'Centered', scale: 70, x: 50, y: 50, rotation: 0,
+    svg: <rect x="8" y="12" width="24" height="36" rx="2" /> },
+  { id: 'bleed-bottom', label: 'Bleed Bottom', scale: 85, x: 50, y: 120, rotation: 0,
+    svg: <rect x="8" y="20" width="24" height="45" rx="2" /> },
+  { id: 'bleed-top', label: 'Bleed Top', scale: 85, x: 50, y: -20, rotation: 0,
+    svg: <rect x="8" y="-5" width="24" height="45" rx="2" /> },
+  { id: 'float-center', label: 'Float Center', scale: 60, x: 50, y: 50, rotation: 0,
+    svg: <rect x="10" y="15" width="20" height="30" rx="2" /> },
+  { id: 'tilt-left', label: 'Tilt Left', scale: 65, x: 50, y: 60, rotation: -8,
+    svg: <rect x="8" y="12" width="24" height="36" rx="2" transform="rotate(-8 20 30)" /> },
+  { id: 'tilt-right', label: 'Tilt Right', scale: 65, x: 50, y: 60, rotation: 8,
+    svg: <rect x="8" y="12" width="24" height="36" rx="2" transform="rotate(8 20 30)" /> },
+  { id: 'perspective', label: 'Perspective', scale: 65, x: 50, y: 50, rotation: 0, perspective: 15,
+    svg: <path d="M12 15 L28 12 L30 48 L10 45 Z" /> },
+  { id: 'float-bottom', label: 'Float Bottom', scale: 55, x: 50, y: 70, rotation: 0,
+    svg: <rect x="10" y="25" width="20" height="30" rx="2" /> },
 ];
 
 const FRAME_COLORS: Record<string, { id: string; label: string; swatch: string }[]> = {
@@ -136,6 +156,41 @@ export function DevicePanel() {
         </div>
       )}
 
+      {/* Position Presets — 2D only, placed above the scale/position sliders to match legacy order */}
+      {!ss.use3D && (
+        <div className="control-group">
+          <div className="preset-dropdown" id="position-preset-dropdown">
+            <div className="preset-positions" id="position-presets">
+              {POSITION_PRESETS.map((preset) => {
+                const isActive =
+                  ss.scale === preset.scale && ss.x === preset.x && ss.y === preset.y &&
+                  ss.rotation === preset.rotation && (ss.perspective || 0) === (preset.perspective || 0);
+                return (
+                  <button
+                    key={preset.id}
+                    className={`position-preset${isActive ? ' active' : ''}`}
+                    title={preset.label}
+                    onClick={() => {
+                      setScreenshotSetting('scale', preset.scale);
+                      setScreenshotSetting('x', preset.x);
+                      setScreenshotSetting('y', preset.y);
+                      setScreenshotSetting('rotation', preset.rotation);
+                      if ('perspective' in preset) setScreenshotSetting('perspective', preset.perspective);
+                      else setScreenshotSetting('perspective', 0);
+                    }}
+                  >
+                    <svg viewBox="0 0 40 60" fill="none" stroke="currentColor" strokeWidth="2">
+                      {preset.svg}
+                    </svg>
+                    <span>{preset.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Screenshot Scale — shown in both 2D and 3D modes */}
       <div className="control-group">
         <label className="control-label">Screenshot Scale</label>
@@ -166,18 +221,9 @@ export function DevicePanel() {
         </div>
       </div>
 
-      {/* 2D-only: Rotation, Corner Radius, Position Presets */}
+      {/* 2D-only: Corner Radius then Tilt/Rotation, matching legacy 2D control order */}
       {!ss.use3D && (
         <>
-          <div className="control-group">
-            <label className="control-label">Rotation</label>
-            <div className="control-row">
-              <input type="range" min="-45" max="45" value={ss.rotation}
-                onChange={(e) => setScreenshotSetting('rotation', parseInt(e.target.value))} />
-              <span className="control-value">{ss.rotation}°</span>
-            </div>
-          </div>
-
           <div className="control-group">
             <label className="control-label">Corner Radius</label>
             <div className="control-row">
@@ -188,25 +234,11 @@ export function DevicePanel() {
           </div>
 
           <div className="control-group">
-            <label className="control-label">Position Presets</label>
-            <div className="preset-grid">
-              {POSITION_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  className="preset-btn"
-                  onClick={() => {
-                    setScreenshotSetting('scale', preset.scale);
-                    setScreenshotSetting('x', preset.x);
-                    setScreenshotSetting('y', preset.y);
-                    setScreenshotSetting('rotation', preset.rotation);
-                    if ('perspective' in preset) setScreenshotSetting('perspective', preset.perspective);
-                    else setScreenshotSetting('perspective', 0);
-                  }}
-                  title={preset.label}
-                >
-                  {preset.label}
-                </button>
-              ))}
+            <label className="control-label">Tilt / Rotation</label>
+            <div className="control-row">
+              <input type="range" min="-45" max="45" value={ss.rotation}
+                onChange={(e) => setScreenshotSetting('rotation', parseInt(e.target.value))} />
+              <span className="control-value">{ss.rotation}°</span>
             </div>
           </div>
         </>
@@ -260,6 +292,16 @@ export function DevicePanel() {
               <input type="color" value={ss.shadow.color}
                 onChange={(e) => setScreenshotSetting('shadow.color', e.target.value)}
                 className="color-input-small" />
+              <input
+                type="text"
+                value={ss.shadow.color}
+                onChange={(e) => {
+                  if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+                    setScreenshotSetting('shadow.color', e.target.value);
+                  }
+                }}
+                className="hex-input"
+              />
             </div>
           </>
         )}

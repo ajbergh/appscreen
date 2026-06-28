@@ -14,6 +14,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { getCanvasDimensions } from '../../canvas/renderer';
 import { getScreenshotImage, renderScreenshotToCanvas } from '../../hooks/useCanvas';
 import type { Screenshot } from '../../types';
+import { DEVICE_DIMENSIONS } from '../../types';
 import { AboutModal, SettingsModal, LanguagesModal } from '../Modals/Modals';
 import { ExportProgressModal, MagicalTitlesModal, ScreenshotTranslationsModal, TranslateAllModal } from '../Modals/AllModals';
 
@@ -34,6 +35,35 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 const LANGUAGE_ORDER = Object.keys(LANGUAGE_NAMES);
+
+/**
+ * Output-size dropdown rows in legacy order, with `divider: true` entries
+ * marking the boundaries between device groups (recovered from index.html).
+ * Display names and dimensions mirror the legacy `.device-option` markup;
+ * dimensions for known devices come from `DEVICE_DIMENSIONS`.
+ */
+type DeviceOption = { device: string; name: string; size: string; divider?: boolean };
+const DEVICE_OPTIONS: DeviceOption[] = [
+  { device: 'iphone-6.9', name: 'iPhone 6.9"', size: '1320 × 2868' },
+  { device: 'iphone-6.7', name: 'iPhone 6.7"', size: '1290 × 2796' },
+  { device: 'iphone-6.5', name: 'iPhone 6.5"', size: '1284 × 2778' },
+  { device: 'iphone-5.5', name: 'iPhone 5.5"', size: '1242 × 2208' },
+  { device: '', name: '', size: '', divider: true },
+  { device: 'ipad-12.9', name: 'iPad 12.9"', size: '2048 × 2732' },
+  { device: 'ipad-11', name: 'iPad 11"', size: '1668 × 2388' },
+  { device: '', name: '', size: '', divider: true },
+  { device: 'android-phone', name: 'Android Phone', size: '1080 × 1920' },
+  { device: 'android-phone-hd', name: 'Android Phone HD', size: '1440 × 2560' },
+  { device: 'android-tablet-7', name: 'Android Tablet 7"', size: '1200 × 1920' },
+  { device: 'android-tablet-10', name: 'Android Tablet 10"', size: '1600 × 2560' },
+  { device: '', name: '', size: '', divider: true },
+  { device: 'web-og', name: 'Open Graph', size: '1200 × 630' },
+  { device: 'web-twitter', name: 'Twitter/X Card', size: '1200 × 675' },
+  { device: 'web-hero', name: 'Website Hero', size: '1920 × 1080' },
+  { device: 'web-feature', name: 'Feature Graphic', size: '1024 × 500' },
+  { device: '', name: '', size: '', divider: true },
+  { device: 'custom', name: 'Custom Size', size: 'Set dimensions' },
+];
 
 /**
  * Renders project controls, screenshot list management, language menus, export
@@ -62,6 +92,7 @@ export function LeftSidebar() {
   const [contextMenuIndex, setContextMenuIndex] = useState<number | null>(null);
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const [outputSizeMenuOpen, setOutputSizeMenuOpen] = useState(false);
   const [exportLangDialogOpen, setExportLangDialogOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState({ isOpen: false, progress: 0, status: '', detail: '' });
   const [translationsModalOpen, setTranslationsModalOpen] = useState(false);
@@ -110,6 +141,7 @@ export function LeftSidebar() {
       if (e.key === 'Escape') {
         if (projectModalOpen) { setProjectModalOpen(false); return; }
         if (exportLangDialogOpen) { setExportLangDialogOpen(false); return; }
+        if (outputSizeMenuOpen) { setOutputSizeMenuOpen(false); return; }
         if (languageMenuOpen) { setLanguageMenuOpen(false); return; }
         if (projectMenuOpen) { setProjectMenuOpen(false); return; }
         if (contextMenuIndex !== null) { setContextMenuIndex(null); return; }
@@ -118,7 +150,7 @@ export function LeftSidebar() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndex, screenshots, projectModalOpen, exportLangDialogOpen, languageMenuOpen, projectMenuOpen, contextMenuIndex, transferTarget]);
+  }, [selectedIndex, screenshots, projectModalOpen, exportLangDialogOpen, outputSizeMenuOpen, languageMenuOpen, projectMenuOpen, contextMenuIndex, transferTarget]);
 
   useEffect(() => () => {
     if (magicalTooltipTimerRef.current) clearTimeout(magicalTooltipTimerRef.current);
@@ -134,9 +166,13 @@ export function LeftSidebar() {
     const storageKey = provider === 'openai' ? 'openaiApiKey' : provider === 'google' ? 'googleApiKey' : 'claudeApiKey';
     if (!localStorage.getItem(storageKey)) return;
     magicalTooltipShownRef.current = true;
-    setMagicalTooltipVisible(true);
     if (magicalTooltipTimerRef.current) clearTimeout(magicalTooltipTimerRef.current);
-    magicalTooltipTimerRef.current = setTimeout(() => dismissMagicalTitlesTooltip(), 8000);
+    // Legacy delays the first-screenshot hint by 500ms before showing it.
+    magicalTooltipTimerRef.current = setTimeout(() => {
+      setMagicalTooltipVisible(true);
+      if (magicalTooltipTimerRef.current) clearTimeout(magicalTooltipTimerRef.current);
+      magicalTooltipTimerRef.current = setTimeout(() => dismissMagicalTitlesTooltip(), 8000);
+    }, 500);
   };
 
   /**
@@ -198,28 +234,91 @@ export function LeftSidebar() {
   };
 
   /**
-   * Shows the duplicate localized-image choice dialog. This is intentionally
-   * imperative while the sidebar keeps parity with the original upload flow.
+   * Escapes a string for safe insertion into the imperative dialog HTML.
    */
-  const showDuplicateUploadDialog = (message: string): Promise<'replace' | 'create' | 'skip'> => {
+  const escapeHtml = (value: string) =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  /**
+   * Shows the duplicate localized-image comparison dialog. This mirrors the
+   * legacy `showDuplicateDialog` (language-utils.js): existing-vs-new thumbnails,
+   * both filenames, the language flag+name, and Replace / Create New / Ignore
+   * options (the `'ignore'` choice maps to the upload flow's skip behavior).
+   */
+  const showDuplicateUploadDialog = (params: {
+    existingIndex: number;
+    detectedLang: string;
+    newSrc: string;
+    newName: string;
+  }): Promise<'replace' | 'create' | 'ignore'> => {
     return new Promise((resolve) => {
+      const screenshot = useAppStore.getState().screenshots[params.existingIndex];
+      const existingLocalized = screenshot?.localizedImages?.[params.detectedLang];
+      const flag = LANGUAGE_FLAGS[params.detectedLang] || '🏳️';
+      const name = LANGUAGE_NAMES[params.detectedLang] || params.detectedLang.toUpperCase();
+
+      const existingThumbHtml = existingLocalized?.image
+        ? `<img src="${escapeHtml(existingLocalized.image.src)}" alt="Existing">`
+        : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary); opacity: 0.5;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`;
+      const existingNameText = existingLocalized?.name
+        ? escapeHtml(existingLocalized.name)
+        : `No ${flag} image`;
+
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay visible';
       overlay.innerHTML = `
-        <div class="modal">
-          <h3>Duplicate Translation Image</h3>
-          <p class="modal-message" style="margin: 16px 0;">${message}</p>
-          <div class="modal-buttons">
-            <button class="modal-btn secondary" data-choice="skip">Skip</button>
-            <button class="modal-btn secondary" data-choice="create">Create New</button>
-            <button class="modal-btn primary" data-choice="replace">Replace</button>
+        <div class="modal duplicate-screenshot-modal">
+          <div class="modal-icon" style="background: rgba(255, 159, 10, 0.2);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #ff9f0a;">
+              <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h3 class="modal-title">Screenshot Already Exists</h3>
+          <p class="modal-message">A screenshot with this filename already exists. What would you like to do?</p>
+          <div class="duplicate-comparison">
+            <div class="duplicate-item">
+              <span class="duplicate-label">Existing</span>
+              <div class="duplicate-thumb">${existingThumbHtml}</div>
+              <span class="duplicate-name">${existingNameText}</span>
+            </div>
+            <div class="duplicate-arrow">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+            <div class="duplicate-item">
+              <span class="duplicate-label">New</span>
+              <div class="duplicate-thumb"><img src="${escapeHtml(params.newSrc)}" alt="New"></div>
+              <span class="duplicate-name">${escapeHtml(params.newName)}</span>
+            </div>
+          </div>
+          <div class="duplicate-options">
+            <button class="duplicate-option" data-choice="replace">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 0115-6.7L21 8M3 22v-6h6M21 12a9 9 0 01-15 6.7L3 16"/></svg>
+              <div class="duplicate-option-text">
+                <span class="duplicate-option-title">Replace</span>
+                <span class="duplicate-option-desc">Replace the ${flag} ${escapeHtml(name)} version</span>
+              </div>
+            </button>
+            <button class="duplicate-option" data-choice="create">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              <div class="duplicate-option-text">
+                <span class="duplicate-option-title">Create New</span>
+                <span class="duplicate-option-desc">Add as a separate screenshot</span>
+              </div>
+            </button>
+            <button class="duplicate-option" data-choice="ignore">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              <div class="duplicate-option-text">
+                <span class="duplicate-option-title">Skip</span>
+                <span class="duplicate-option-desc">Don't upload this file</span>
+              </div>
+            </button>
           </div>
         </div>
       `;
       document.body.appendChild(overlay);
       overlay.querySelectorAll<HTMLButtonElement>('button[data-choice]').forEach((button) => {
         button.addEventListener('click', () => {
-          const choice = button.dataset.choice as 'replace' | 'create' | 'skip';
+          const choice = button.dataset.choice as 'replace' | 'create' | 'ignore';
           overlay.remove();
           resolve(choice);
         });
@@ -227,7 +326,7 @@ export function LeftSidebar() {
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
           overlay.remove();
-          resolve('skip');
+          resolve('ignore');
         }
       });
     });
@@ -323,8 +422,8 @@ export function LeftSidebar() {
     if (existingIdx >= 0) {
       const existing = useAppStore.getState().screenshots[existingIdx];
       if (existing.localizedImages?.[detectedLang]?.image) {
-        const choice = await showDuplicateUploadDialog(`${name} matches screenshot ${existingIdx + 1} and already has ${detectedLang.toUpperCase()} image data.`);
-        if (choice === 'skip') return;
+        const choice = await showDuplicateUploadDialog({ existingIndex: existingIdx, detectedLang, newSrc: src, newName: name });
+        if (choice === 'ignore') return;
         if (choice === 'create') {
           addScreenshot(createDefaultScreenshot(name, img, { [detectedLang]: { image: img, src, name } }, deviceType));
           useAppStore.getState().addProjectLanguage(detectedLang);
@@ -485,7 +584,9 @@ export function LeftSidebar() {
       screenshot: { ...defaults.screenshot },
       text: JSON.parse(JSON.stringify(defaults.text)),
       elements: (defaults.elements || []).map((el) => ({ ...el, id: crypto.randomUUID(), image: el.image || null, texts: { ...(el.texts || {}) } })),
-      popouts: (defaults.popouts || []).map((p) => ({ ...p, id: crypto.randomUUID(), shadow: { ...p.shadow }, border: { ...p.border } })),
+      // Popout crops are source-image-specific, so new screenshots always start
+      // with no popouts (matches legacy createNewScreenshot in app.js).
+      popouts: [],
       overrides: {},
     };
   };
@@ -636,10 +737,10 @@ export function LeftSidebar() {
    */
   const handleDeleteProject = async () => {
     if (projects.length <= 1) {
-      await showAppAlert('At least one project must remain.');
+      await showAppAlert('Cannot delete the only project');
       return;
     }
-    const confirmed = await showAppConfirm(`Delete project "${currentProject?.name || 'Current Project'}"?`, 'Delete');
+    const confirmed = await showAppConfirm(`Are you sure you want to delete "${currentProject?.name || 'Current Project'}"? This cannot be undone.`, 'Delete');
     if (!confirmed) return;
     await deleteProject(currentProjectId);
   };
@@ -810,16 +911,75 @@ export function LeftSidebar() {
     setTransferTarget(null);
   };
 
+  /**
+   * Shows the dedicated apply-style-to-all confirmation modal (legacy
+   * `apply-style-modal` in index.html) and resolves with the user's choice.
+   */
+  const showApplyStyleConfirm = (): Promise<boolean> => new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay visible';
+    overlay.innerHTML = `
+      <div class="modal apply-style-modal">
+        <div class="modal-icon" style="background: rgba(10, 132, 255, 0.2);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent);">
+            <rect x="9" y="9" width="13" height="13" rx="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </div>
+        <h3 class="modal-title">Apply Style to All?</h3>
+        <p class="modal-message">This will copy the background, device, and text settings from this screenshot to all other screenshots. This cannot be undone.</p>
+        <div class="modal-buttons">
+          <button class="modal-btn secondary" data-confirm="false">Cancel</button>
+          <button class="modal-btn primary" data-confirm="true" style="background: var(--accent);">Apply to All</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll<HTMLButtonElement>('button[data-confirm]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const result = button.dataset.confirm === 'true';
+        overlay.remove();
+        resolve(result);
+      });
+    });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        resolve(false);
+      }
+    });
+  });
+
   /** Copies one screenshot's style settings to every screenshot in the project. */
   const handleApplyStyleToAll = async (sourceIndex: number) => {
-    const confirmed = await showAppConfirm(
-      `Apply screenshot ${sourceIndex + 1}'s style to all other screenshots? Text copy and translations will be preserved.`,
-      'Apply Style'
-    );
+    const confirmed = await showApplyStyleConfirm();
     if (!confirmed) return;
     applyStyleToAll(sourceIndex);
     saveState();
     handleCloseContextMenu();
+  };
+
+  /**
+   * Resolves the trigger's displayed device name and dimensions. Custom uses the
+   * live W×H; known devices read from `DEVICE_DIMENSIONS`.
+   */
+  const getOutputTriggerLabel = () => {
+    const option = DEVICE_OPTIONS.find((o) => o.device === outputDevice);
+    if (outputDevice === 'custom') {
+      return { name: 'Custom Size', dims: `${customWidth} × ${customHeight}` };
+    }
+    const dim = DEVICE_DIMENSIONS[outputDevice];
+    return {
+      name: option?.name || 'Custom Size',
+      dims: dim ? `${dim.width} × ${dim.height}` : (option?.size || ''),
+    };
+  };
+
+  /** Selects an output device from the custom dropdown and closes the menu. */
+  const handleSelectOutputDevice = (device: string) => {
+    setOutputDevice(device);
+    saveState();
+    setOutputSizeMenuOpen(false);
   };
 
   // Export with language dialog.
@@ -862,11 +1022,14 @@ export function LeftSidebar() {
                     ))}
                   </div>
                   <div className="language-menu-divider" />
-                  <button className="language-menu-edit" onClick={() => { setLanguageMenuOpen(false); setTranslateAllOpen(true); }}>
-                    ✨ Translate All...
-                  </button>
                   <button className="language-menu-edit" onClick={() => { setLanguageMenuOpen(false); setLanguagesModalOpen(true); }}>
-                    🌐 Edit Languages...
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit Languages...
+                  </button>
+                  <div className="language-menu-divider" />
+                  <button className="language-menu-edit" onClick={() => { setLanguageMenuOpen(false); setTranslateAllOpen(true); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6"/></svg>
+                    Translate All...
                   </button>
                 </div>
               )}
@@ -924,10 +1087,10 @@ export function LeftSidebar() {
         <h2>Screenshots</h2>
         <input ref={fileInputRef} type="file" id="file-input" multiple accept="image/*" hidden onChange={handleFileUpload}/>
         <input ref={backupInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportProjectBackup}/>
-        {/* Transfer mode hint */}
-        {transferTarget !== null && (
+        {/* Transfer mode hint (legacy gates this on having more than one screenshot) */}
+        {transferTarget !== null && screenshots.length > 1 && (
           <div className="transfer-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--accent-subtle-strong)', border: '1px solid var(--accent)', borderRadius: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--accent)' }}>
-            <span>Click a screenshot to copy its style into #{transferTarget + 1}</span>
+            <span>Select a screenshot to copy style from</span>
             <button className="transfer-cancel" onClick={handleCancelTransfer} style={{ padding: '4px 10px', border: 'none', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Cancel</button>
           </div>
         )}
@@ -936,7 +1099,7 @@ export function LeftSidebar() {
           {screenshots.map((s, i) => (
             <div
               key={i}
-              className={`screenshot-item${i === selectedIndex ? ' selected' : ''}${dragIndex === i ? ' dragging' : ''}${dragOverIndex === i && dragOverPosition === 'after' ? ' drag-insert-after' : ''}${dragOverIndex === i && dragOverPosition === 'before' ? ' drag-insert-before' : ''}${transferTarget !== null && transferTarget !== i ? ' transfer-source-option' : ''}`}
+              className={`screenshot-item${i === selectedIndex ? ' selected' : ''}${dragIndex === i ? ' dragging' : ''}${dragOverIndex === i && dragOverPosition === 'after' ? ' drag-insert-after' : ''}${dragOverIndex === i && dragOverPosition === 'before' ? ' drag-insert-before' : ''}${transferTarget === i ? ' transfer-target' : ''}${transferTarget !== null && transferTarget !== i ? ' transfer-source-option' : ''}`}
               draggable={transferTarget === null}
               onDragStart={(e) => handleDragStart(e, i)}
               onDragOver={(e) => handleDragOver(e, i)}
@@ -964,8 +1127,8 @@ export function LeftSidebar() {
               <div className="screenshot-info">
                 <span className="screenshot-name">{s.name}</span>
                 <span className="screenshot-device" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginTop: '1px' }}>
-                  {s.deviceType || outputDevice}
-                  {projectLanguages.length > 1 && (
+                  {transferTarget === i ? 'Click source to copy style' : (s.deviceType || outputDevice)}
+                  {transferTarget !== i && projectLanguages.length > 1 && (
                     <span className="screenshot-lang-flags">
                       {Object.keys(s.localizedImages || {})
                         .filter((lang) => hasLocalizedScreenshotImage(s, lang))
@@ -994,28 +1157,34 @@ export function LeftSidebar() {
               {/* Context Menu */}
               {contextMenuIndex === i && (
                 <div className="screenshot-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px', minWidth: '220px', zIndex: 100, boxShadow: '0 4px 12px var(--shadow-color)', display: 'block' }}>
-                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleStartTransfer(i); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    📋 Copy Style from Another Screenshot
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); selectScreenshot(i); setTranslationsModalOpen(true); handleCloseContextMenu(); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6"/></svg>
+                    Manage Translations...
                   </button>
-                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleApplyStyleToAll(i); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    📋 Apply Style to All Screenshots
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleReplaceScreenshot(i); handleCloseContextMenu(); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Replace Screenshot...
                   </button>
-                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); setCurrentScreenshotAsDefault(); saveState(); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    ⭐ Set as Default Style
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleStartTransfer(i); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    Copy style from...
                   </button>
-                  {projectLanguages.length > 1 && (
-                    <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); selectScreenshot(i); setTranslationsModalOpen(true); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                      🌐 Screenshot Translations
-                    </button>
-                  )}
-                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleReplaceScreenshot(i); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    🖼️ Replace Screenshot...
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); handleApplyStyleToAll(i); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/><path d="M14 14l2 2 4-4"/></svg>
+                    Apply style to all...
                   </button>
-                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); duplicateScreenshot(i); saveState(); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    📄 Duplicate
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); duplicateScreenshot(i); saveState(); handleCloseContextMenu(); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    Duplicate
                   </button>
-                  <button className="screenshot-menu-item danger" onClick={(e) => { e.stopPropagation(); deleteScreenshot(i); saveState(); handleCloseContextMenu(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}>
-                    🗑️ Delete
+                  <button className="screenshot-menu-item danger" onClick={(e) => { e.stopPropagation(); deleteScreenshot(i); saveState(); handleCloseContextMenu(); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    Remove
+                  </button>
+                  {/* Accepted React-only extra: kept after Remove per parity audit. */}
+                  <button className="screenshot-menu-item" onClick={(e) => { e.stopPropagation(); setCurrentScreenshotAsDefault(); saveState(); handleCloseContextMenu(); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7-6.3-4.6L5.7 21l2.3-7-6-4.6h7.6z"/></svg>
+                    Set as Default Style
                   </button>
                 </div>
               )}
@@ -1040,48 +1209,50 @@ export function LeftSidebar() {
       <div className="sidebar-footer">
         <div className="export-output-section">
           <div className="export-row">
-            <div className="output-size-dropdown">
-              <select value={outputDevice} onChange={(e) => { setOutputDevice(e.target.value); saveState(); }} className="output-size-select">
-                <optgroup label="iPhone">
-                  <option value="iphone-6.9">iPhone 6.9" (1320 × 2868)</option>
-                  <option value="iphone-6.7">iPhone 6.7" (1290 × 2796)</option>
-                  <option value="iphone-6.5">iPhone 6.5" (1284 × 2778)</option>
-                  <option value="iphone-5.5">iPhone 5.5" (1242 × 2208)</option>
-                </optgroup>
-                <optgroup label="iPad">
-                  <option value="ipad-12.9">iPad 12.9" (2048 × 2732)</option>
-                  <option value="ipad-11">iPad 11" (1668 × 2388)</option>
-                </optgroup>
-                <optgroup label="Android">
-                  <option value="android-phone">Android Phone (1080 × 1920)</option>
-                  <option value="android-phone-hd">Android Phone HD (1440 × 2560)</option>
-                  <option value="android-tablet-7">Android Tablet 7" (1200 × 1920)</option>
-                  <option value="android-tablet-10">Android Tablet 10" (1600 × 2560)</option>
-                </optgroup>
-                <optgroup label="Web">
-                  <option value="web-og">Open Graph (1200 × 630)</option>
-                  <option value="web-twitter">Twitter/X Card (1200 × 675)</option>
-                  <option value="web-hero">Website Hero (1920 × 1080)</option>
-                  <option value="web-feature">Feature Graphic (1024 × 500)</option>
-                </optgroup>
-                <option value="custom">Custom ({customWidth} × {customHeight})</option>
-              </select>
+            <div className="output-size-dropdown" style={{ position: 'relative' }}>
+              <button className="output-size-trigger" onClick={() => setOutputSizeMenuOpen((open) => !open)}>
+                <div className="output-size-info">
+                  <span className="output-size-name">{getOutputTriggerLabel().name}</span>
+                  <span className="output-size-dims">{getOutputTriggerLabel().dims}</span>
+                </div>
+                <svg className="dropdown-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              {outputSizeMenuOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} onClick={() => setOutputSizeMenuOpen(false)} />
+              )}
+              {outputSizeMenuOpen && (
+                <div className="output-size-menu" style={{ display: 'block', zIndex: 100 }}>
+                  {DEVICE_OPTIONS.map((option, idx) =>
+                    option.divider ? (
+                      <div key={`divider-${idx}`} className="output-size-divider" />
+                    ) : (
+                      <div
+                        key={option.device}
+                        className={`device-option${option.device === outputDevice ? ' selected' : ''}`}
+                        data-device={option.device}
+                        onClick={() => handleSelectOutputDevice(option.device)}
+                      >
+                        <span className="device-option-name">{option.name}</span>
+                        <span className="device-option-size">{option.size}</span>
+                      </div>
+                    )
+                  )}
+                  {outputDevice === 'custom' && (
+                    <div className="custom-size-inputs" style={{ display: 'flex' }}>
+                      <input type="number" min="100" max="4000" placeholder="Width" value={customWidth}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => { useAppStore.getState().setCustomDimensions(parseInt(e.target.value) || 1290, customHeight); saveState(); }} />
+                      <span className="custom-size-x">×</span>
+                      <input type="number" min="100" max="4000" placeholder="Height" value={customHeight}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => { useAppStore.getState().setCustomDimensions(customWidth, parseInt(e.target.value) || 2796); saveState(); }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <button className="export-btn secondary" title="Export current" disabled={screenshots.length === 0} onClick={handleExportCurrent}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>
           </div>
-          {/* Custom size inputs */}
-          {outputDevice === 'custom' && (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'var(--text-secondary)', flexShrink: 0 }}>W</label>
-              <input type="number" min="100" max="4000" value={customWidth}
-                onChange={(e) => { useAppStore.getState().setCustomDimensions(parseInt(e.target.value) || 1290, customHeight); saveState(); }}
-                style={{ flex: 1, padding: '4px 6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '12px' }} />
-              <label style={{ fontSize: '11px', color: 'var(--text-secondary)', flexShrink: 0 }}>H</label>
-              <input type="number" min="100" max="4000" value={customHeight}
-                onChange={(e) => { useAppStore.getState().setCustomDimensions(customWidth, parseInt(e.target.value) || 2796); saveState(); }}
-                style={{ flex: 1, padding: '4px 6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '12px' }} />
-            </div>
-          )}
           <button className="export-btn export-all-btn" title="Export all as ZIP" disabled={screenshots.length === 0} onClick={handleExportAllClick}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export All</button>
         </div>
       </div>
@@ -1090,10 +1261,11 @@ export function LeftSidebar() {
         <div className="modal-overlay" onClick={() => setProjectModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{projectModalMode === 'new' ? 'New Project' : 'Rename Project'}</h3>
-            <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="Project name" className="modal-input" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleProjectModalConfirm(); }}/>
-            {projectModalMode === 'new' && (
+            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Project Name</label>
+            <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="My App Screenshots" className="modal-input" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleProjectModalConfirm(); }}/>
+            {projectModalMode === 'new' && projects.length > 0 && (
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Duplicate from existing project (optional)</label>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Duplicate from</label>
                 <select
                   onChange={(e) => {
                     const selectedId = e.target.value;
@@ -1105,7 +1277,7 @@ export function LeftSidebar() {
                   style={{ width: '100%', padding: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
                 >
                   <option value="">None (empty project)</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.screenshotCount ? ` (${p.screenshotCount} screenshots)` : ''}</option>)}
                 </select>
               </div>
             )}
@@ -1129,15 +1301,23 @@ export function LeftSidebar() {
       {exportLangDialogOpen && (
         <div className="modal-overlay" onClick={() => setExportLangDialogOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Export Options</h3>
+            <div className="modal-icon" style={{ background: 'rgba(10, 132, 255, 0.2)' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--accent)' }}>
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </div>
+            <h3 className="modal-title">Export Screenshots</h3>
+            <p className="modal-message">Choose which language versions to export.</p>
             <div className="export-options" style={{ display: 'flex', flexDirection: 'column', gap: '10px', margin: '20px 0' }}>
               <button className="export-option" onClick={() => { setExportLangDialogOpen(false); handleExportAll(); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', padding: '16px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                 <span className="export-option-title" style={{ fontSize: '15px', fontWeight: 500, color: 'var(--text-primary)' }}>Current Language Only</span>
-                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Export screenshots in the current language ({getLanguageLabel(currentLanguage)})</span>
+                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{getLanguageLabel(currentLanguage)}</span>
               </button>
               <button className="export-option" onClick={() => { setExportLangDialogOpen(false); handleExportAllAllLanguages(); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', padding: '16px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                 <span className="export-option-title" style={{ fontSize: '15px', fontWeight: 500, color: 'var(--text-primary)' }}>All Languages</span>
-                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Export screenshots in all project languages (separate folders)</span>
+                <span className="export-option-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Separate folder per language</span>
               </button>
             </div>
             <div className="modal-buttons">

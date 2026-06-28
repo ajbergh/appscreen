@@ -9,7 +9,8 @@
 import { useRef, useEffect, useCallback } from 'react';
 import * as ThreeModule from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { setThreeRenderer } from './useCanvas';
+import { setThreeRenderer, getScreenshotImage } from './useCanvas';
+import { useAppStore } from '../stores/appStore';
 
 const THREE = ThreeModule as any;
 
@@ -415,12 +416,43 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     const material = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
     const screenPlane = new THREE.Mesh(geometry, material);
     screenPlane.position.set(screenOffset.x, screenOffset.y, screenOffset.z);
+    // Counter-rotate the screen to cancel the model's base rotation so it keeps
+    // facing forward when the pivot applies the base rotation (mirrors three-renderer.js).
+    const modelRot = config.modelRotation || { x: 0, y: 0, z: 0 };
+    screenPlane.rotation.set(
+      -modelRot.x * Math.PI / 180,
+      -modelRot.y * Math.PI / 180,
+      -modelRot.z * Math.PI / 180
+    );
     model.add(screenPlane);
 
     stateRef.current = {
       ...stateRef.current, phoneModel: model, phonePivot: pivot, customScreenPlane: screenPlane,
       phoneModelLoaded: true, phoneModelLoading: false, baseModelScale, currentDeviceModel: deviceType,
     };
+
+    // Apply the selected screenshot's frame color and screen texture synchronously
+    // so the model does not flash an un-colored frame / placeholder screen while
+    // effects/polling catch up (mirrors three-renderer.js finishCurrentModelLoad).
+    const appState = useAppStore.getState();
+    const selectedSS = appState.screenshots[appState.selectedIndex];
+    const frameColor = selectedSS?.screenshot?.frameColor || frameColorPresets[deviceType]?.[0]?.id;
+    applyFrameColor(model, frameColor, deviceType);
+
+    if (selectedSS) {
+      const currentImage = getScreenshotImage(selectedSS, appState.currentLanguage, appState.projectLanguages);
+      if (currentImage) {
+        const roundedImage = createDeviceScreenImage(currentImage, config);
+        const texture = new THREE.Texture(roundedImage);
+        texture.needsUpdate = true;
+        if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
+        texture.flipY = true;
+        const screenMaterial = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide, transparent: true });
+        screenPlane.material.dispose();
+        screenPlane.material = screenMaterial;
+        stateRef.current.screenTexture = texture;
+      }
+    }
 
     setThreeRenderer({
       renderToCanvas: (canvas: HTMLCanvasElement, width: number, height: number, ss?: any) => {
@@ -493,6 +525,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     const material = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
     const screenPlane = new THREE.Mesh(geometry, material);
     screenPlane.position.set(screenOffset.x, screenOffset.y, screenOffset.z);
+    // Counter-rotate the screen to cancel the model's base rotation (mirrors three-renderer.js buildCachedModel).
+    const modelRot = config.modelRotation || { x: 0, y: 0, z: 0 };
+    screenPlane.rotation.set(
+      -modelRot.x * Math.PI / 180,
+      -modelRot.y * Math.PI / 180,
+      -modelRot.z * Math.PI / 180
+    );
     model.add(screenPlane);
 
     return { model, pivot, screenPlane, baseScale: modelBaseScale, loaded: true, loading: false };
@@ -606,6 +645,13 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     texture.flipY = true;
     screenPlaneToUse.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide, transparent: true });
 
+    // Capture the active screenshot's frame color so a temporary recolor of the
+    // live model can be undone after rendering (mirrors three-renderer.js).
+    let activeFrameColor: string | undefined;
+    if (useCurrentModel) {
+      const appState = useAppStore.getState();
+      activeFrameColor = appState.screenshots[appState.selectedIndex]?.screenshot?.frameColor;
+    }
     applyFrameColor(modelToUse, ss.frameColor, deviceType);
 
     const rotation3D = ss.rotation3D || { x: 0, y: 0, z: 0 };
@@ -646,6 +692,12 @@ export function useThreeJS(containerRef: React.RefObject<HTMLDivElement | null>)
     pivotToUse.position.copy(originalPosition);
     pivotToUse.scale.copy(originalScale);
     pivotToUse.rotation.copy(originalRotation);
+
+    // Restore the active screenshot's frame color on the live model if we
+    // temporarily recolored it (mirrors three-renderer.js 1117-1123).
+    if (useCurrentModel && ss.frameColor && activeFrameColor) {
+      applyFrameColor(modelToUse, activeFrameColor, deviceType);
+    }
 
     if (!useCurrentModel) {
       state.scene.remove(pivotToUse);

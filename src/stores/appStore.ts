@@ -158,28 +158,44 @@ function getBaseLanguageLayout(text: Partial<TextSettings>): TextSettings['langu
 }
 
 /**
- * Adds a language to headline/subheadline maps and layout settings without
- * overwriting existing translations.
+ * Adds a language to a text record's headline/subheadline arrays and seeds empty
+ * translation strings, mirroring legacy `addProjectLanguage`.
+ *
+ * Per-language `languageSettings` are intentionally NOT seeded here; legacy seeds
+ * them lazily at read time (`getTextLanguageSettings`), which `normalizeTextSettings`
+ * reproduces. Returns a new text object without mutating the input.
  */
-function ensureTextLanguage(text: Partial<TextSettings> | undefined, lang: string, sourceLang = 'en'): TextSettings {
+function addLanguageToText(text: Partial<TextSettings> | undefined, lang: string): TextSettings {
   const normalized = normalizeTextSettings(text);
-  const sourceLayout = normalized.languageSettings[sourceLang]
-    || normalized.languageSettings[normalized.currentLayoutLang]
-    || normalized.languageSettings[normalized.currentHeadlineLang]
-    || normalized.languageSettings.en
-    || getBaseLanguageLayout(normalized);
-
   if (!normalized.headlineLanguages.includes(lang)) {
     normalized.headlineLanguages = [...normalized.headlineLanguages, lang];
+    normalized.headlines = { ...normalized.headlines, [lang]: normalized.headlines[lang] ?? '' };
   }
   if (!normalized.subheadlineLanguages.includes(lang)) {
     normalized.subheadlineLanguages = [...normalized.subheadlineLanguages, lang];
+    normalized.subheadlines = { ...normalized.subheadlines, [lang]: normalized.subheadlines[lang] ?? '' };
   }
-  if (!(lang in normalized.headlines)) normalized.headlines[lang] = '';
-  if (!(lang in normalized.subheadlines)) normalized.subheadlines[lang] = '';
-  if (!normalized.languageSettings[lang]) {
-    normalized.languageSettings[lang] = { ...sourceLayout };
-  }
+  return normalized;
+}
+
+/**
+ * Removes a language from a text record's arrays/translation maps, repointing the
+ * current-language pointers to `fallbackLang` when they referenced the removed
+ * language. Mirrors legacy `removeProjectLanguage`'s per-screenshot loop.
+ */
+function removeLanguageFromText(text: Partial<TextSettings> | undefined, lang: string, fallbackLang: string): TextSettings {
+  const normalized = normalizeTextSettings(text);
+  normalized.headlineLanguages = normalized.headlineLanguages.filter((l) => l !== lang);
+  normalized.subheadlineLanguages = normalized.subheadlineLanguages.filter((l) => l !== lang);
+  const headlines = { ...normalized.headlines };
+  const subheadlines = { ...normalized.subheadlines };
+  delete headlines[lang];
+  delete subheadlines[lang];
+  normalized.headlines = headlines;
+  normalized.subheadlines = subheadlines;
+  if (normalized.currentHeadlineLang === lang) normalized.currentHeadlineLang = fallbackLang;
+  if (normalized.currentSubheadlineLang === lang) normalized.currentSubheadlineLang = fallbackLang;
+  if (normalized.currentLayoutLang === lang) normalized.currentLayoutLang = fallbackLang;
   return normalized;
 }
 
@@ -201,22 +217,19 @@ function normalizeTextSettings(text: Partial<TextSettings> | undefined): TextSet
   merged.subheadlineLanguages = merged.subheadlineLanguages || ['en'];
   merged.currentSubheadlineLang = merged.currentSubheadlineLang || merged.subheadlineLanguages[0] || 'en';
   if (!merged.languageSettings) merged.languageSettings = {};
-  const languages = new Set([
-    'en',
-    ...merged.headlineLanguages,
-    ...merged.subheadlineLanguages,
-    ...Object.keys(merged.headlines),
-    ...Object.keys(merged.subheadlines),
-  ]);
+  // Parity with legacy `normalizeTextSettings`: the declared language set is
+  // strictly `headlineLanguages ∪ subheadlineLanguages` (defaulting to `en` only
+  // when both are empty). We do NOT back-add languages from the headline/
+  // subheadline translation map keys, and we only seed `languageSettings`
+  // (create-on-read), never the translation maps themselves.
+  const languages = new Set([...merged.headlineLanguages, ...merged.subheadlineLanguages]);
+  if (languages.size === 0) languages.add('en');
   const sourceLayout = merged.languageSettings[merged.currentLayoutLang]
     || merged.languageSettings[merged.currentHeadlineLang]
+    || merged.languageSettings[merged.currentSubheadlineLang]
     || merged.languageSettings.en
     || getBaseLanguageLayout(merged);
   languages.forEach((lang) => {
-    if (!merged.headlineLanguages.includes(lang)) merged.headlineLanguages.push(lang);
-    if (!merged.subheadlineLanguages.includes(lang)) merged.subheadlineLanguages.push(lang);
-    if (!(lang in merged.headlines)) merged.headlines[lang] = '';
-    if (!(lang in merged.subheadlines)) merged.subheadlines[lang] = '';
     if (!merged.languageSettings[lang]) merged.languageSettings[lang] = { ...sourceLayout };
   });
   return merged;
@@ -395,6 +408,7 @@ interface AppStore extends AppState {
   deleteScreenshot: (index: number) => void;
   selectScreenshot: (index: number) => void;
   setSelectedElementId: (id: string | null) => void;
+  setSelectedPopoutId: (id: string | null) => void;
   duplicateScreenshot: (index: number) => void;
   reorderScreenshots: (fromIndex: number, toIndex: number) => void;
 
@@ -413,6 +427,7 @@ interface AppStore extends AppState {
   setCustomDimensions: (width: number, height: number) => void;
   setCurrentLanguage: (lang: string) => void;
   addProjectLanguage: (lang: string) => void;
+  removeProjectLanguage: (lang: string) => void;
   setActiveTab: (tab: string) => void;
 
   // Getters
@@ -448,12 +463,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   screenshots: [],
   selectedIndex: 0,
   selectedElementId: null,
+  selectedPopoutId: null,
   transferTarget: null,
   outputDevice: 'iphone-6.9',
   currentLanguage: 'en',
   projectLanguages: ['en'],
-  customWidth: 1290,
-  customHeight: 2796,
+  customWidth: 1320,
+  customHeight: 2868,
   defaults: getDefaultSettings(),
   activeTab: 'background',
 
@@ -463,6 +479,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       screenshots: [...state.screenshots, screenshot],
       selectedIndex: state.screenshots.length === 0 ? 0 : state.selectedIndex,
       selectedElementId: null,
+      selectedPopoutId: null,
     })),
 
   updateScreenshot: (index, updates) =>
@@ -480,12 +497,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
         screenshots: newScreenshots,
         selectedIndex: Math.max(0, newSelectedIndex),
         selectedElementId: null,
+        selectedPopoutId: null,
       };
     }),
 
-  selectScreenshot: (index) => set({ selectedIndex: index, selectedElementId: null }),
+  selectScreenshot: (index) => set({ selectedIndex: index, selectedElementId: null, selectedPopoutId: null }),
 
-  setSelectedElementId: (id) => set({ selectedElementId: id }),
+  setSelectedElementId: (id) => set({ selectedElementId: id, selectedPopoutId: id ? null : get().selectedPopoutId }),
+
+  setSelectedPopoutId: (id) => set({ selectedPopoutId: id, selectedElementId: id ? null : get().selectedElementId }),
 
   duplicateScreenshot: (index) =>
     set((state) => {
@@ -509,6 +529,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         screenshots: newScreenshots,
         selectedIndex: index + 1,
         selectedElementId: null,
+        selectedPopoutId: null,
       };
     }),
 
@@ -529,6 +550,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         screenshots: newScreenshots,
         selectedIndex,
         selectedElementId: null,
+        selectedPopoutId: null,
       };
     }),
 
@@ -666,42 +688,66 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setOutputDevice: (device) => set({ outputDevice: device }),
   setCustomDimensions: (width, height) => set({ customWidth: width, customHeight: height }),
   setCurrentLanguage: (lang) => {
+    // Parity with legacy `switchGlobalLanguage`: set the global language and each
+    // screenshot's per-field language pointers ONLY. Do not touch `currentLayoutLang`,
+    // do not seed `languageSettings`, and do not mutate `defaults`.
     set((state) => ({
       currentLanguage: lang,
       screenshots: state.screenshots.map((screenshot) => ({
         ...screenshot,
-        text: normalizeTextSettings({
-          ...ensureTextLanguage(screenshot.text, lang, state.currentLanguage),
+        text: {
+          ...screenshot.text,
           currentHeadlineLang: lang,
           currentSubheadlineLang: lang,
-          currentLayoutLang: lang,
-        }),
+        },
       })),
-      defaults: {
-        ...state.defaults,
-        text: normalizeTextSettings({
-          ...ensureTextLanguage(state.defaults.text, lang, state.currentLanguage),
-          currentHeadlineLang: lang,
-          currentSubheadlineLang: lang,
-          currentLayoutLang: lang,
-        }),
-      },
     }));
     get().saveState();
   },
   addProjectLanguage: (lang) =>
     set((state) => {
-      if (state.projectLanguages.includes(lang)) return state;
-      const sourceLang = state.currentLanguage || 'en';
+      if (!lang || state.projectLanguages.includes(lang)) return state;
       return {
         projectLanguages: [...state.projectLanguages, lang],
         screenshots: state.screenshots.map((screenshot) => ({
           ...screenshot,
-          text: ensureTextLanguage(screenshot.text, lang, sourceLang),
+          text: addLanguageToText(screenshot.text, lang),
         })),
         defaults: {
           ...state.defaults,
-          text: ensureTextLanguage(state.defaults.text, lang, sourceLang),
+          text: addLanguageToText(state.defaults.text, lang),
+        },
+      };
+    }),
+  removeProjectLanguage: (lang) =>
+    set((state) => {
+      // Parity with legacy `removeProjectLanguage`: requires ≥2 languages; any
+      // language (including `en`) may be removed. Removing the current language
+      // switches to the first remaining language.
+      if (state.projectLanguages.length <= 1) return state;
+      if (!state.projectLanguages.includes(lang)) return state;
+      const newLanguages = state.projectLanguages.filter((l) => l !== lang);
+      const fallback = newLanguages[0];
+      const switchingCurrent = state.currentLanguage === lang;
+      const nextCurrent = switchingCurrent ? fallback : state.currentLanguage;
+      const repoint = (text: TextSettings): TextSettings => {
+        const cleaned = removeLanguageFromText(text, lang, fallback);
+        if (switchingCurrent) {
+          cleaned.currentHeadlineLang = fallback;
+          cleaned.currentSubheadlineLang = fallback;
+        }
+        return cleaned;
+      };
+      return {
+        projectLanguages: newLanguages,
+        currentLanguage: nextCurrent,
+        screenshots: state.screenshots.map((screenshot) => ({
+          ...screenshot,
+          text: repoint(screenshot.text),
+        })),
+        defaults: {
+          ...state.defaults,
+          text: repoint(state.defaults.text),
         },
       };
     }),
@@ -744,12 +790,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       screenshots: [],
       selectedIndex: 0,
       selectedElementId: null,
+      selectedPopoutId: null,
       transferTarget: null,
       outputDevice: 'iphone-6.9',
       currentLanguage: 'en',
       projectLanguages: ['en'],
-      customWidth: 1290,
-      customHeight: 2796,
+      customWidth: 1320,
+      customHeight: 2868,
       defaults: getDefaultSettings(),
       activeTab: 'background',
     }),
@@ -766,6 +813,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         screenshots,
         selectedIndex,
         selectedElementId: null,
+        selectedPopoutId: null,
         transferTarget: typeof newState.transferTarget === 'number' ? newState.transferTarget : null,
         outputDevice: newState.outputDevice || state.outputDevice,
         currentLanguage: newState.currentLanguage || state.currentLanguage,
@@ -789,6 +837,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
           if (i !== toIndex) return s;
           const targetText = normalizeTextSettings(s.text);
           const styledText = normalizeTextSettings(source.text);
+          // Parity with legacy `transferStyle`: copy text *styling* from the source
+          // but preserve only the target's own `headlines`/`subheadlines` copy. The
+          // source's language arrays and current-language pointers come along.
           return {
             ...s,
             background: normalizeBackgroundSettings(source.background),
@@ -797,10 +848,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
               ...styledText,
               headlines: { ...targetText.headlines },
               subheadlines: { ...targetText.subheadlines },
-              headlineLanguages: [...targetText.headlineLanguages],
-              subheadlineLanguages: [...targetText.subheadlineLanguages],
-              currentHeadlineLang: targetText.currentHeadlineLang,
-              currentSubheadlineLang: targetText.currentSubheadlineLang,
             }),
             elements: cloneElements(source.elements),
           };
@@ -817,6 +864,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
           if (i === fromIndex) return s;
           const targetText = normalizeTextSettings(s.text);
           const styledText = normalizeTextSettings(source.text);
+          // Parity with legacy `applyStyleToAll`: preserve only each target's own
+          // `headlines`/`subheadlines` copy; all other text styling/language state
+          // is taken from the source.
           return {
             ...s,
             background: normalizeBackgroundSettings(source.background),
@@ -825,10 +875,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
               ...styledText,
               headlines: { ...targetText.headlines },
               subheadlines: { ...targetText.subheadlines },
-              headlineLanguages: [...targetText.headlineLanguages],
-              subheadlineLanguages: [...targetText.subheadlineLanguages],
-              currentHeadlineLang: targetText.currentHeadlineLang,
-              currentSubheadlineLang: targetText.currentSubheadlineLang,
             }),
             elements: cloneElements(source.elements),
           };

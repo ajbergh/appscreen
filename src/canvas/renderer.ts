@@ -31,6 +31,9 @@ export function getCanvasDimensions(outputDevice: string, customWidth: number, c
   if (outputDevice === 'custom') {
     return { width: customWidth, height: customHeight };
   }
+  // Intentional safety addition not present in legacy app.js (which returns
+  // deviceDimensions[outputDevice] with no fallback): guard against obsolete or
+  // unknown device ids by defaulting to the iPhone 6.9" size.
   return DEVICE_DIMENSIONS[outputDevice] || { width: 1290, height: 2796 };
 }
 
@@ -406,15 +409,27 @@ function getEffectiveLayout(text: TextSettings, lang: string) {
     };
   }
 
-  const settings = text.languageSettings?.[lang] || text.languageSettings?.['en'];
+  // Per-language layout: when this language has no stored settings yet, legacy
+  // getTextLanguageSettings (app.js ~223-237) seeds it from the active source
+  // language's layout (currentLayoutLang/Headline/Subheadline) if present, else
+  // the flat globals. The renderer is pure, so we compute the same effective
+  // values without mutating text.languageSettings.
+  const settings = text.languageSettings?.[lang];
   if (settings) return settings;
 
+  const sourceLang =
+    text.currentLayoutLang ||
+    text.currentHeadlineLang ||
+    text.currentSubheadlineLang ||
+    'en';
+  const sourceSettings = text.languageSettings?.[sourceLang];
+
   return {
-    headlineSize: text.headlineSize || 100,
-    subheadlineSize: text.subheadlineSize || 50,
-    position: (text.position || 'top') as 'top' | 'center' | 'bottom',
-    offsetY: typeof text.offsetY === 'number' ? text.offsetY : 12,
-    lineHeight: text.lineHeight || 110,
+    headlineSize: sourceSettings ? sourceSettings.headlineSize : (text.headlineSize || 100),
+    subheadlineSize: sourceSettings ? sourceSettings.subheadlineSize : (text.subheadlineSize || 50),
+    position: (sourceSettings ? sourceSettings.position : (text.position || 'top')) as 'top' | 'center' | 'bottom',
+    offsetY: sourceSettings ? sourceSettings.offsetY : (typeof text.offsetY === 'number' ? text.offsetY : 12),
+    lineHeight: sourceSettings ? sourceSettings.lineHeight : (text.lineHeight || 110),
   };
 }
 
@@ -437,7 +452,20 @@ export function drawText(
 
   const headlineLang = text.currentHeadlineLang || 'en';
   const subheadlineLang = text.currentSubheadlineLang || 'en';
-  const layoutLang = text.currentLayoutLang || headlineLang;
+  // Layout language precedence mirrors legacy getTextLayoutLanguage (app.js
+  // ~216-221): explicit currentLayoutLang wins; otherwise the headline language
+  // when the headline is enabled, then the subheadline language, then whichever
+  // pointer exists.
+  let layoutLang: string;
+  if (text.currentLayoutLang) {
+    layoutLang = text.currentLayoutLang;
+  } else if (headlineEnabled) {
+    layoutLang = text.currentHeadlineLang || 'en';
+  } else if (subheadlineEnabled) {
+    layoutLang = text.currentSubheadlineLang || 'en';
+  } else {
+    layoutLang = text.currentHeadlineLang || text.currentSubheadlineLang || 'en';
+  }
   const headlineLayout = getEffectiveLayout(text, headlineLang);
   const subheadlineLayout = getEffectiveLayout(text, subheadlineLang);
   const layoutSettings = getEffectiveLayout(text, layoutLang);

@@ -43,8 +43,9 @@ export function PopoutsPanel() {
   const selectedIndex = useAppStore((s) => s.selectedIndex);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
   const projectLanguages = useAppStore((s) => s.projectLanguages);
+  const selectedPopoutId = useAppStore((s) => s.selectedPopoutId);
+  const setSelectedPopoutId = useAppStore((s) => s.setSelectedPopoutId);
 
-  const [selectedPopoutId, setSelectedPopoutId] = useState<string | null>(null);
   const [cropCursor, setCropCursor] = useState('default');
   const cropPreviewRef = useRef<HTMLCanvasElement>(null);
   const cropDragRef = useRef<{
@@ -60,7 +61,11 @@ export function PopoutsPanel() {
   const hasImage = !!sourceImage;
 
   /** Formats percentage/pixel values like the vanilla popout inspector. */
-  const formatValue = (value: number) => Number.isFinite(value) ? value.toFixed(1) : '0.0';
+  const formatValue = (value: number) => {
+    if (!Number.isFinite(value)) return '0';
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1);
+  };
 
   /**
    * Applies partial popout updates to the selected screenshot.
@@ -83,20 +88,50 @@ export function PopoutsPanel() {
   };
 
   /**
-   * Converts crop percentages to preview-canvas pixels for drawing and hit tests.
+   * Computes the letterboxed image-fit layout within the crop preview canvas,
+   * mirroring legacy `getCropPreviewLayout`. Crop rectangles are positioned and
+   * sized against this drawn rect (drawX/drawY/drawW/drawH), not the full canvas.
    */
-  const getCropRect = (p: PopoutSettings, canvas: HTMLCanvasElement) => ({
-    x: (p.cropX / 100) * canvas.width,
-    y: (p.cropY / 100) * canvas.height,
-    w: (p.cropWidth / 100) * canvas.width,
-    h: (p.cropHeight / 100) * canvas.height,
-  });
+  const getCropPreviewLayout = (canvas: HTMLCanvasElement, img: HTMLImageElement) => {
+    const w = canvas.width;
+    const h = canvas.height;
+    const imgAspect = img.width / img.height;
+    const canvasAspect = w / h;
+    let drawW: number, drawH: number, drawX: number, drawY: number;
+    if (imgAspect > canvasAspect) {
+      drawW = w;
+      drawH = w / imgAspect;
+      drawX = 0;
+      drawY = (h - drawH) / 2;
+    } else {
+      drawH = h;
+      drawW = h * imgAspect;
+      drawX = (w - drawW) / 2;
+      drawY = 0;
+    }
+    return { drawX, drawY, drawW, drawH };
+  };
+
+  /**
+   * Converts crop percentages to preview-canvas pixels for drawing and hit tests,
+   * offset and scaled by the letterboxed image layout.
+   */
+  const getCropRect = (p: PopoutSettings, canvas: HTMLCanvasElement, img: HTMLImageElement) => {
+    const { drawX, drawY, drawW, drawH } = getCropPreviewLayout(canvas, img);
+    return {
+      x: drawX + (p.cropX / 100) * drawW,
+      y: drawY + (p.cropY / 100) * drawH,
+      w: (p.cropWidth / 100) * drawW,
+      h: (p.cropHeight / 100) * drawH,
+    };
+  };
 
   /**
    * Returns the active crop handle or move mode at a preview-canvas point.
    */
   const hitTestCrop = (p: PopoutSettings, canvas: HTMLCanvasElement, x: number, y: number) => {
-    const r = getCropRect(p, canvas);
+    if (!sourceImage) return '';
+    const r = getCropRect(p, canvas, sourceImage);
     const hs = 12;
     const handles = [
       ['nw', r.x, r.y], ['n', r.x + r.w / 2, r.y], ['ne', r.x + r.w, r.y],
@@ -163,15 +198,16 @@ export function PopoutsPanel() {
    */
   const handleCropPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = cropDragRef.current;
-    if (!selectedPopout) return;
+    if (!selectedPopout || !sourceImage) return;
     const canvas = e.currentTarget;
     const point = getCanvasPoint(e);
     if (!drag) {
       setCropCursor(getCropCursor(hitTestCrop(selectedPopout, canvas, point.x, point.y)));
       return;
     }
-    const dx = ((point.x - drag.startX) / canvas.width) * 100;
-    const dy = ((point.y - drag.startY) / canvas.height) * 100;
+    const { drawW, drawH } = getCropPreviewLayout(canvas, sourceImage);
+    const dx = ((point.x - drag.startX) / drawW) * 100;
+    const dy = ((point.y - drag.startY) / drawH) * 100;
     const o = drag.original;
     let crop = { cropX: o.cropX, cropY: o.cropY, cropWidth: o.cropWidth, cropHeight: o.cropHeight };
 
@@ -271,14 +307,19 @@ export function PopoutsPanel() {
     canvas.style.width = containerWidth + 'px';
     canvas.style.height = Math.round(containerWidth / imgAspect) + 'px';
 
-    // Draw image
-    ctx.drawImage(sourceImage, 0, 0, canvasW, canvasH);
+    // Letterbox the image within the canvas and position the crop rect against it.
+    const { drawX, drawY, drawW, drawH } = getCropPreviewLayout(canvas, sourceImage);
+
+    ctx.clearRect(0, 0, canvasW, canvasH);
+
+    // Draw full image
+    ctx.drawImage(sourceImage, drawX, drawY, drawW, drawH);
 
     // Dim overlay
-    const rx = (selectedPopout.cropX / 100) * canvasW;
-    const ry = (selectedPopout.cropY / 100) * canvasH;
-    const rw = (selectedPopout.cropWidth / 100) * canvasW;
-    const rh = (selectedPopout.cropHeight / 100) * canvasH;
+    const rx = drawX + (selectedPopout.cropX / 100) * drawW;
+    const ry = drawY + (selectedPopout.cropY / 100) * drawH;
+    const rw = (selectedPopout.cropWidth / 100) * drawW;
+    const rh = (selectedPopout.cropHeight / 100) * drawH;
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.fillRect(0, 0, canvasW, canvasH);
@@ -289,7 +330,7 @@ export function PopoutsPanel() {
     ctx.rect(rx, ry, rw, rh);
     ctx.clip();
     ctx.clearRect(rx, ry, rw, rh);
-    ctx.drawImage(sourceImage, 0, 0, canvasW, canvasH);
+    ctx.drawImage(sourceImage, drawX, drawY, drawW, drawH);
     ctx.restore();
 
     // Border
@@ -331,7 +372,7 @@ export function PopoutsPanel() {
               <div className="popout-item-thumb"><PopoutThumb popout={p} sourceImage={sourceImage} /></div>
               <div className="popout-item-info">
                 <div className="popout-item-name">Popout {idx + 1}</div>
-                <div className="popout-item-crop">{formatValue(p.cropWidth)}% × {formatValue(p.cropHeight)}%</div>
+                <div className="popout-item-crop">{Math.round(p.cropWidth)}% × {Math.round(p.cropHeight)}%</div>
               </div>
               <div className="popout-item-actions">
                 <button className="element-item-btn" onClick={(e) => { e.stopPropagation(); movePopout(p.id, 'up'); }}>↑</button>

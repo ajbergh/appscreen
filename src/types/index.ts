@@ -197,6 +197,7 @@ export interface AppState {
   screenshots: Screenshot[];
   selectedIndex: number;
   selectedElementId: string | null;
+  selectedPopoutId: string | null;
   transferTarget: number | null;
   outputDevice: string;
   currentLanguage: string;

@@ -37,27 +37,19 @@ export function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
             <path d="M12 8h.01" />
           </svg>
         </div>
-        <h3>About App Store Screenshot Generator</h3>
+        <h3>App Store Screenshot Generator</h3>
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '16px', textAlign: 'center' }}>
-          <p>A free, open-source tool for creating App Store screenshots with customizable backgrounds, text overlays, and device mockups.</p>
+          <p>A free vibe coded tool for creating beautiful App Store screenshots with customizable backgrounds, text overlays, and device frames.</p>
           <p style={{ marginTop: '8px' }}>
-            Vibe coded and created by Stefan from <a href="https://yuzuhub.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>yuzuhub.com</a>.
+            Created by <a href="https://yuzuhub.com/en" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Stefan from yuzuhub.com</a>
           </p>
           <p style={{ marginTop: '8px' }}>
-            Released under the MIT License.
+            This project is free and open source under the MIT License.
           </p>
-          <p style={{ marginTop: '8px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
-            <a href="https://yuzu-hub.github.io/appscreen/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Live Version</a>
-            <span>·</span>
+          <p style={{ marginTop: '8px' }}>
+            <a href="https://yuzu-hub.github.io/appscreen/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Live Version</a> ·{' '}
             <a href="https://github.com/YUZU-Hub/appscreen" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>GitHub Repo</a>
           </p>
-          <p style={{ marginTop: '8px' }}>
-            <strong>Credits:</strong>
-          </p>
-          <ul style={{ marginLeft: '16px', marginTop: '4px' }}>
-            <li>iPhone 15 Pro Max 3D Model by MajdyModels (CC BY 4.0)</li>
-            <li>Samsung Galaxy S25 Ultra 3D Model by mistJS (CC BY 4.0)</li>
-          </ul>
         </div>
         <div className="modal-buttons">
           <button className="modal-btn primary" onClick={onClose}>Close</button>
@@ -99,8 +91,8 @@ const LLM_PROVIDERS = {
     modelStorageKey: 'googleModel',
     keyPrefix: 'AIza',
     models: [
-      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview ($$)' },
-      { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview ($$$)' },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview) ($$)' },
+      { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview) ($$$)' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite ($)' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash ($$)' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro ($$$)' },
@@ -142,24 +134,27 @@ const LANGUAGE_OPTIONS = [
 
 const LANGUAGE_LABELS = Object.fromEntries(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang]));
 
-const PROVIDER_UI: Record<keyof typeof LLM_PROVIDERS, { shortName: string; icon: string; description: string; helpUrl: string }> = {
+const PROVIDER_UI: Record<keyof typeof LLM_PROVIDERS, { shortName: string; icon: string; description: string; helpUrl: string; helpLabel: string }> = {
   anthropic: {
     shortName: 'Claude',
     icon: '✦',
     description: 'Best for polished marketing copy and nuanced translation review.',
     helpUrl: 'https://console.anthropic.com/settings/keys',
+    helpLabel: 'Get your API key from Anthropic Console',
   },
   openai: {
     shortName: 'OpenAI',
     icon: '◎',
     description: 'Strong general-purpose translation and structured JSON output.',
     helpUrl: 'https://platform.openai.com/api-keys',
+    helpLabel: 'Get your API key from OpenAI Platform',
   },
   google: {
     shortName: 'Google',
     icon: '◆',
     description: 'Gemini models for translation and multimodal title generation.',
     helpUrl: 'https://aistudio.google.com/app/apikey',
+    helpLabel: 'Get your API key from Google AI Studio',
   },
 };
 
@@ -192,12 +187,26 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     const status: Record<string, string> = {};
     (Object.keys(LLM_PROVIDERS) as Array<keyof typeof LLM_PROVIDERS>).forEach((provider) => {
       const config = LLM_PROVIDERS[provider];
-      status[provider] = localStorage.getItem(config.storageKey) ? 'API key saved' : '';
+      status[provider] = localStorage.getItem(config.storageKey) ? '✓ API key is saved' : '';
     });
     setKeyStatus(status);
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  /**
+   * Applies a theme preference to the document immediately, mirroring legacy
+   * `applyTheme`: 'auto' clears `data-theme` so the OS media query drives the
+   * palette; 'light'/'dark' set the attribute explicitly. Persistence happens
+   * separately on Save.
+   */
+  const applyThemeLive = (preference: string) => {
+    if (preference === 'light' || preference === 'dark') {
+      document.documentElement.dataset.theme = preference;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  };
 
   /**
    * Persists theme, selected provider, provider API keys, and model IDs. The key
@@ -207,11 +216,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
   const handleSave = () => {
     // Save theme.
     localStorage.setItem('themePreference', theme);
-    if (theme === 'light' || theme === 'dark') {
-      document.documentElement.dataset.theme = theme;
-    } else {
-      delete document.documentElement.dataset.theme;
-    }
+    applyThemeLive(theme);
 
     // Save provider.
     localStorage.setItem('aiProvider', aiProvider);
@@ -225,7 +230,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
       if (key) {
         if (key.startsWith(config.keyPrefix)) {
           localStorage.setItem(config.storageKey, key);
-          newStatus[provider] = '✓ API key saved';
+          newStatus[provider] = '✓ API key is saved';
         } else {
           newStatus[provider] = `Should start with ${config.keyPrefix}...`;
           if (provider === aiProvider) valid = false;
@@ -245,19 +250,14 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px', width: '95%' }}>
-        <h3>Settings</h3>
-
-        {/* Theme */}
-        <div className="control-group">
-          <label className="control-label">Theme</label>
-          <div className="btn-group">
-            {(['auto', 'light', 'dark'] as const).map((t) => (
-              <button key={t} className={theme === t ? 'active' : ''} onClick={() => setTheme(t)}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
+      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px', width: '95%' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Settings</h3>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         {/* AI Provider */}
@@ -296,23 +296,28 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             />
             <button
               type="button"
-              className="modal-btn secondary"
+              className="settings-show-key"
+              title="Show/hide key"
+              aria-label="Show/hide key"
               onClick={() => setShowKeys((prev) => ({ ...prev, [aiProvider]: !prev[aiProvider] }))}
-              style={{ padding: '8px 10px' }}
             >
-              {showKeys[aiProvider] ? 'Hide' : 'Show'}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
           </div>
           {keyStatus[aiProvider] && (
-            <p style={{ fontSize: '11px', color: keyStatus[aiProvider].includes('saved') ? '#30d158' : '#ff453a', marginBottom: '8px' }}>
+            <div className="settings-key-status" style={{ fontSize: '11px', color: keyStatus[aiProvider].includes('saved') ? '#30d158' : '#ff453a', marginBottom: '8px' }}>
               {keyStatus[aiProvider]}
-            </p>
+            </div>
           )}
-          <a href={providerUi.helpUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '12px', textDecoration: 'none' }}>
-            Get your API key from {providerUi.shortName}
+          <a href={providerUi.helpUrl} target="_blank" rel="noreferrer" className="settings-link" style={{ color: 'var(--accent)', fontSize: '12px', textDecoration: 'none' }}>
+            {providerUi.helpLabel}
           </a>
           <label className="control-label" style={{ marginBottom: '6px', display: 'block', marginTop: '8px' }}>Model</label>
           <select
+            className="settings-model-select"
             value={models[aiProvider] || curProvider.defaultModel}
             onChange={(e) => setModels((prev) => ({ ...prev, [aiProvider]: e.target.value }))}
             style={{ width: '100%', padding: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
@@ -326,6 +331,22 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
           </p>
         </div>
 
+        {/* Appearance */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '20px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)', flexShrink: 0 }}>Appearance</span>
+          <div className="btn-group" style={{ flex: '0 0 200px' }}>
+            {(['auto', 'light', 'dark'] as const).map((t) => (
+              <button
+                key={t}
+                className={theme === t ? 'active' : ''}
+                onClick={() => { setTheme(t); applyThemeLive(t); }}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="modal-buttons">
           <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
           <button className="modal-btn primary" onClick={handleSave}>Save Settings</button>
@@ -337,168 +358,101 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
 // ===== Languages Modal =====
 /**
- * Manages the language list for the current project and removes language-scoped
- * images/text/defaults when a language is deleted.
+ * Manages the project's language list. Add/remove apply live through the store's
+ * `addProjectLanguage`/`removeProjectLanguage` actions (matching legacy, where the
+ * modal mutates immediately and Done just closes). The store handles cleanup of
+ * language-scoped text/defaults and repointing the current language on removal.
  */
 export function LanguagesModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   useEscapeKey(onClose, isOpen);
   const currentLanguage = useAppStore((s) => s.currentLanguage);
   const projectLanguages = useAppStore((s) => s.projectLanguages);
-  const setCurrentLanguage = useAppStore((s) => s.setCurrentLanguage);
-  const screenshots = useAppStore((s) => s.screenshots);
-  const selectedIndex = useAppStore((s) => s.selectedIndex);
-  const updateScreenshot = useAppStore((s) => s.updateScreenshot);
-  const defaults = useAppStore((s) => s.defaults);
 
-  const [languages, setLanguages] = useState<string[]>(projectLanguages);
-  const availableToAdd = LANGUAGE_OPTIONS.filter((lang) => !languages.includes(lang.code));
-  const [selectedAddLanguage, setSelectedAddLanguage] = useState(availableToAdd[0]?.code || '');
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setLanguages(projectLanguages);
-    const nextAdd = LANGUAGE_OPTIONS.find((lang) => !projectLanguages.includes(lang.code))?.code || '';
-    setSelectedAddLanguage(nextAdd);
-  }, [isOpen, projectLanguages]);
-
-  /**
-   * Adds the chosen language to local modal state.
-   */
-  const addLanguage = () => {
-    if (!selectedAddLanguage || languages.includes(selectedAddLanguage)) return;
-    const next = [...languages, selectedAddLanguage];
-    setLanguages(next);
-    setSelectedAddLanguage(LANGUAGE_OPTIONS.find((lang) => !next.includes(lang.code))?.code || '');
-  };
-
-  /**
-   * Removes a language from local modal state while preserving at least one
-   * language and keeping English as the baseline fallback.
-   */
-  const removeLanguage = (code: string) => {
-    if (code === 'en' || languages.length <= 1) return;
-    setLanguages((prev) => prev.filter((lang) => lang !== code));
-  };
+  const availableToAdd = LANGUAGE_OPTIONS.filter((lang) => !projectLanguages.includes(lang.code));
 
   if (!isOpen) return null;
 
   /**
-   * Applies the modal language set to the app store and removes stale localized
-   * image/text/default records for languages that were unchecked.
+   * Adds the chosen language live, mirroring legacy `addProjectLanguage`: the
+   * store mutates the project immediately, then we persist. The Done button is
+   * purely a close action because all changes apply as they are made.
    */
-  const handleDone = () => {
-    const addedLangs = languages.filter(l => !projectLanguages.includes(l));
-    addedLangs.forEach((lang) => useAppStore.getState().addProjectLanguage(lang));
-
+  const addLanguage = (code: string) => {
+    if (!code || projectLanguages.includes(code)) return;
     const store = useAppStore.getState();
-    const removedLangs = store.projectLanguages.filter(l => !languages.includes(l));
-
-    // Clean up removed languages from all screenshots
-    if (removedLangs.length > 0) {
-      const newScreenshots = store.screenshots.map((screenshot) => {
-        const updated = { ...screenshot };
-
-        // Remove from localized images
-        if (updated.localizedImages) {
-          updated.localizedImages = { ...updated.localizedImages };
-          removedLangs.forEach(lang => delete updated.localizedImages[lang]);
-        }
-
-        // Remove from text
-        if (updated.text) {
-          const text = { ...updated.text };
-          removedLangs.forEach(lang => {
-            if (lang !== 'en') {
-              delete text.headlines?.[lang];
-              delete text.subheadlines?.[lang];
-              const hIdx = text.headlineLanguages?.indexOf(lang) ?? -1;
-              if (hIdx > -1 && text.headlineLanguages) text.headlineLanguages = text.headlineLanguages.filter(l => l !== lang);
-              const sIdx = text.subheadlineLanguages?.indexOf(lang) ?? -1;
-              if (sIdx > -1 && text.subheadlineLanguages) text.subheadlineLanguages = text.subheadlineLanguages.filter(l => l !== lang);
-              if (text.currentHeadlineLang === lang) text.currentHeadlineLang = 'en';
-              if (text.currentSubheadlineLang === lang) text.currentSubheadlineLang = 'en';
-            }
-          });
-          updated.text = text;
-        }
-
-        return updated;
-      });
-      const newDefaults = { ...defaults, text: { ...defaults.text } };
-      removedLangs.forEach(lang => {
-        delete newDefaults.text.headlines?.[lang];
-        delete newDefaults.text.subheadlines?.[lang];
-        delete newDefaults.text.languageSettings?.[lang];
-        if (newDefaults.text.currentHeadlineLang === lang) newDefaults.text.currentHeadlineLang = 'en';
-        if (newDefaults.text.currentSubheadlineLang === lang) newDefaults.text.currentSubheadlineLang = 'en';
-        if (newDefaults.text.currentLayoutLang === lang) newDefaults.text.currentLayoutLang = 'en';
-      });
-      store.setState({ projectLanguages: languages, screenshots: newScreenshots, defaults: newDefaults, currentLanguage: languages.includes(currentLanguage) ? currentLanguage : 'en' });
-    } else {
-      store.setState({ projectLanguages: languages, currentLanguage: languages.includes(currentLanguage) ? currentLanguage : 'en' });
-    }
-
+    store.addProjectLanguage(code);
+    // addProjectLanguage does not persist on its own; save after mutating.
     store.saveState();
-    onClose();
+  };
+
+  /**
+   * Removes a language live, mirroring legacy `removeProjectLanguage`. The store
+   * guards on `projectLanguages.length <= 1` and repoints the current language;
+   * any language (including English) is removable when more than one remains.
+   */
+  const removeLanguage = (code: string) => {
+    if (projectLanguages.length <= 1) return;
+    const store = useAppStore.getState();
+    store.removeProjectLanguage(code);
+    // removeProjectLanguage does not persist on its own; save after mutating.
+    store.saveState();
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <h3>Languages</h3>
-        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-          Manage the languages used by screenshots, text, and localized source images.
-        </p>
-        <div style={{ overflowY: 'auto', flex: 1, marginBottom: '16px' }}>
-          <label className="control-label" style={{ display: 'block', marginBottom: '8px' }}>Current Languages</label>
-          {languages.map((code) => {
+      <div className="modal languages-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Project Languages</h3>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="modal-message">Manage the languages available for text in this project.</p>
+
+        <div className="languages-list" style={{ overflowY: 'auto', flex: 1 }}>
+          {projectLanguages.map((code) => {
             const lang = LANGUAGE_LABELS[code] || { code, name: code.toUpperCase(), flag: '🌐' };
             const isCurrent = code === currentLanguage;
-            const canRemove = code !== 'en' && languages.length > 1;
+            const canRemove = projectLanguages.length > 1;
             return (
-              <div
-                key={code}
-                className="language-option selected"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
-                  borderRadius: '6px', marginBottom: '4px', background: 'var(--accent-subtle)',
-                }}
-              >
+              <div key={code} className="language-item">
                 <span style={{ fontSize: '18px' }}>{lang.flag}</span>
-                <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1 }}>{lang.name}</span>
-                {isCurrent && <span style={{ fontSize: '10px', color: 'var(--accent)', textTransform: 'uppercase' }}>Current</span>}
+                <span style={{ flex: 1 }}>{lang.name}</span>
+                {isCurrent && <span className="current-badge">Current</span>}
                 <button
-                  className="modal-btn secondary"
+                  className="remove-btn"
                   disabled={!canRemove}
                   onClick={() => removeLanguage(code)}
-                  style={{ padding: '4px 8px', opacity: canRemove ? 1 : 0.45 }}
+                  aria-label={`Remove ${lang.name}`}
                 >
-                  Remove
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             );
           })}
-
-          <div className="language-menu-divider" style={{ margin: '14px 0' }} />
-          <label className="control-label" style={{ display: 'block', marginBottom: '8px' }}>Add a language</label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <select
-              value={selectedAddLanguage}
-              onChange={(e) => setSelectedAddLanguage(e.target.value)}
-              disabled={availableToAdd.length === 0}
-              style={{ flex: 1, padding: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: 'var(--text-primary)' }}
-            >
-              {availableToAdd.length === 0 && <option value="">All languages added</option>}
-              {availableToAdd.map((lang) => (
-                <option key={lang.code} value={lang.code}>{lang.flag} {lang.name}</option>
-              ))}
-            </select>
-            <button className="modal-btn secondary" onClick={addLanguage} disabled={!selectedAddLanguage}>Add</button>
-          </div>
         </div>
+
+        <div className="add-language-section">
+          <select
+            className="control-select"
+            value=""
+            onChange={(e) => { addLanguage(e.target.value); e.target.value = ''; }}
+            disabled={availableToAdd.length === 0}
+          >
+            <option value="">Add a language...</option>
+            {availableToAdd.map((lang) => (
+              <option key={lang.code} value={lang.code}>{lang.flag} {lang.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="modal-buttons">
-          <button className="modal-btn secondary" onClick={onClose}>Cancel</button>
-          <button className="modal-btn primary" onClick={handleDone}>Done</button>
+          <button className="modal-btn primary" onClick={onClose} style={{ background: 'var(--accent)' }}>Done</button>
         </div>
       </div>
     </div>

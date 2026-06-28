@@ -36,6 +36,7 @@ export function CanvasArea() {
   const rightPreviewRef = useRef<HTMLCanvasElement>(null);
   const farRightPreviewRef = useRef<HTMLCanvasElement>(null);
   const previousIndexRef = useRef(0);
+  const isSlidingRef = useRef(false);
 
   // Side preview container refs used for dynamic positioning around the main canvas.
   const leftContainerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +51,7 @@ export function CanvasArea() {
   const updateScreenshot = useAppStore((s) => s.updateScreenshot);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const setSelectedElementId = useAppStore((s) => s.setSelectedElementId);
+  const setSelectedPopoutId = useAppStore((s) => s.setSelectedPopoutId);
   const saveState = useAppStore((s) => s.saveState);
   const outputDevice = useAppStore((s) => s.outputDevice);
   const customWidth = useAppStore((s) => s.customWidth);
@@ -60,15 +62,20 @@ export function CanvasArea() {
   useEffect(() => {
     const previous = previousIndexRef.current;
     if (previous === selectedIndex) return;
+    // Parity with legacy: the carousel slide animation runs ONLY for adjacent
+    // navigation (side-preview click / swipe), where |delta| === 1. Multi-step
+    // jumps (e.g. clicking a far thumbnail in the left list) switch instantly,
+    // matching the legacy screenshot-list click which had no slide.
+    const delta = Math.abs(selectedIndex - previous);
+    previousIndexRef.current = selectedIndex;
+    if (delta !== 1 || isSlidingRef.current) return;
     const strip = document.querySelector<HTMLElement>('.preview-strip');
-    if (!strip) {
-      previousIndexRef.current = selectedIndex;
-      return;
-    }
+    if (!strip) return;
     const direction = selectedIndex > previous ? -1 : 1;
     const slideDims = getCanvasDimensions(outputDevice, customWidth, customHeight);
     const slideScale = Math.min(400 / slideDims.width, 700 / slideDims.height);
     const slideOffset = slideDims.width * slideScale + 10;
+    isSlidingRef.current = true;
     strip.classList.add('sliding');
     strip.style.transition = 'none';
     strip.style.transform = `translateX(${direction * slideOffset}px)`;
@@ -78,9 +85,9 @@ export function CanvasArea() {
       window.setTimeout(() => {
         strip.classList.remove('sliding');
         strip.style.transition = '';
+        isSlidingRef.current = false;
       }, 320);
     });
-    previousIndexRef.current = selectedIndex;
   }, [selectedIndex, outputDevice, customWidth, customHeight]);
 
   // Initialize or refresh the Three.js model whenever the project needs 3D rendering.
@@ -363,7 +370,8 @@ export function CanvasArea() {
       e.currentTarget.setPointerCapture(e.pointerId);
       document.getElementById('canvas-wrapper')?.classList.add('element-dragging');
       setActiveTab('popouts');
-      setSelectedElementId(null);
+      // Share the selected popout with the Popouts panel (legacy app.js ~3078-3089).
+      setSelectedPopoutId(target.target.id);
       elementDragRef.current = {
         kind: 'popout',
         id: target.target.id,
@@ -486,10 +494,19 @@ export function CanvasArea() {
               display: 'block',
             } : undefined}
           />
+          {/*
+            Parity with legacy three-renderer.js `showThreeJS` (the container is
+            ALWAYS `display:none`). The live 3D phone is rendered offscreen by the
+            WebGL renderer and composited onto the 2D `#preview-canvas` by
+            `renderScreenshotToCanvas`, so the container must never be shown or it
+            would (a) cover the correct 2D composite with a bare phone and
+            (b) intercept all canvas pointer events (element/popout drag, rotate).
+            The element stays mounted so the WebGL context remains valid.
+          */}
           <div
             ref={threeContainerRef}
             id="threejs-container"
-            style={{ display: showThreeJS ? 'block' : 'none' }}
+            style={{ display: 'none' }}
           />
           {!hasScreenshots && (
             <div className="no-screenshot" id="no-screenshot">
