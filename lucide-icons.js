@@ -453,3 +453,9 @@ const LUCIDE_ALL = [
     'youtube',
     'zap-off','zap','zoom-in','zoom-out'
 ];
+
+if (typeof window !== 'undefined') {
+    window.EMOJI_DATA = EMOJI_DATA;
+    window.LUCIDE_POPULAR = LUCIDE_POPULAR;
+    window.LUCIDE_ALL = LUCIDE_ALL;
+}
