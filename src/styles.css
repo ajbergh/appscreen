@@ -3065,6 +3065,7 @@ input[type="range"]::-webkit-slider-thumb {
     cursor: pointer;
     transition: background 0.15s;
     border: 1px solid transparent;
+    min-width: 0;
 }
 
 .screenshot-item:hover {
@@ -3103,14 +3104,31 @@ input[type="range"]::-webkit-slider-thumb {
 .screenshot-info {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .screenshot-name {
+    display: block;
+    width: 100%;
     font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.screenshot-device {
+    display: block;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
 }
 
 .screenshot-actions {
@@ -3118,9 +3136,12 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
+    flex: 0 0 auto;
+    align-items: center;
 }
 
-.screenshot-item:hover .screenshot-actions {
+.screenshot-item:hover .screenshot-actions,
+.screenshot-item:focus-within .screenshot-actions {
     opacity: 1;
 }
 
