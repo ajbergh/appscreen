@@ -22,3 +22,4 @@ frontend-dist/
 *.AppImage
 *.deb
 *.snap
+output/vite/vite.log
