@@ -123,7 +123,7 @@ function normalizeBackgroundSettings(background) {
         overlayColor: bg.overlayColor || '#000000',
         overlayOpacity: bg.overlayOpacity || 0,
         noise: !!bg.noise,
-        noiseIntensity: bg.noiseIntensity || 10
+        noiseIntensity: bg.noiseIntensity ?? 10
     };
 }
 
@@ -1792,7 +1792,7 @@ function loadState() {
                                 overlayColor: parsed.background.overlayColor || '#000000',
                                 overlayOpacity: parsed.background.overlayOpacity || 0,
                                 noise: parsed.background.noise || false,
-                                noiseIntensity: parsed.background.noiseIntensity || 10
+                                noiseIntensity: parsed.background.noiseIntensity ?? 10
                             };
                         }
                         if (parsed.screenshot) {
